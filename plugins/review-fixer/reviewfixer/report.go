@@ -53,19 +53,26 @@ func clip(s string, n int) string {
 	return s[:b]
 }
 
+// threadMatchesAuthor reports whether a thread's ORIGINATOR (first comment) author login
+// contains author (case-insensitive). An empty author matches every thread. This is the
+// single source of truth for the -author filter, shared by filterThreads and applyItems.
+func threadMatchesAuthor(t Thread, author string) bool {
+	want := strings.ToLower(author)
+
+	return want == "" || strings.Contains(strings.ToLower(t.Author), want)
+}
+
 // filterThreads keeps unresolved threads, optionally restricting to those whose
 // ORIGINATOR (first comment) author login contains author (case-insensitive); an empty
 // author keeps every unresolved thread.
 func filterThreads(threads []Thread, author string) []Thread {
-	want := strings.ToLower(author)
-
 	out := make([]Thread, 0, len(threads))
 	for _, t := range threads {
 		if t.IsResolved {
 			continue
 		}
 
-		if want != "" && !strings.Contains(strings.ToLower(t.Author), want) {
+		if !threadMatchesAuthor(t, author) {
 			continue
 		}
 

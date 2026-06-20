@@ -107,17 +107,25 @@ func (s scope) applyItems(ctx context.Context, threads []Thread, author string, 
 
 	unresolvedAtStart := len(filterThreads(threads, author))
 
+	// matchedApplied counts only resolved-this-run threads that match the -author filter,
+	// since unresolvedAtStart is itself filtered by author. Decrementing Remaining by the
+	// total Applied would under-report when a resolved thread falls outside the filter.
+	matchedApplied := 0
+
 	rep := applyReport{Results: make([]applyItemResult, 0, len(items)), Requested: len(items)}
 	for _, item := range items {
 		res := s.applyOne(ctx, byID, item)
 		if res.Resolve == "ok" {
 			rep.Applied++
+			if threadMatchesAuthor(byID[item.ThreadID], author) {
+				matchedApplied++
+			}
 		}
 
 		rep.Results = append(rep.Results, res)
 	}
 
-	rep.Remaining = max(unresolvedAtStart-rep.Applied, 0)
+	rep.Remaining = max(unresolvedAtStart-matchedApplied, 0)
 
 	return rep
 }

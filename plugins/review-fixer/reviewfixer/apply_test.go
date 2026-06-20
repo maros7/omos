@@ -138,6 +138,63 @@ func TestApplyPartialFailure(t *testing.T) {
 	assert.Contains(t, out, "applied 1/2; remaining unresolved: 1")
 }
 
+// authorFilterServer returns three unresolved threads: two from "alice" (M1, M2) and one
+// from "bob" (N1). Replies and resolve mutations all succeed. It drives the -author
+// remaining-accounting regression below.
+func authorFilterServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	const page = `{"data":{"repository":{"pullRequest":{"reviewThreads":{` +
+		`"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[` +
+		`{"id":"M1","isResolved":false,"comments":{"nodes":[{"databaseId":101,"body":"a","author":{"login":"alice"},"path":"a.go","line":1}]}},` +
+		`{"id":"M2","isResolved":false,"comments":{"nodes":[{"databaseId":102,"body":"b","author":{"login":"alice"},"path":"b.go","line":2}]}},` +
+		`{"id":"N1","isResolved":false,"comments":{"nodes":[{"databaseId":201,"body":"c","author":{"login":"bob"},"path":"c.go","line":3}]}}` +
+		`]}}}}}`
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/graphql" {
+			if strings.Contains(mustBody(r), "resolveReviewThread") {
+				_, _ = w.Write([]byte(resolvedOK))
+
+				return
+			}
+			_, _ = w.Write([]byte(page))
+
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+}
+
+// TestApplyAuthorRemainingNotUnderReported is the regression for the -author remaining
+// regression: with -author alice the matching baseline is {M1,M2}=2. We resolve a MATCHING
+// thread (M1) and a NON-MATCHING thread (N1); both transition to resolved. remaining must
+// reflect only the matching resolve (M2 still open => 1), not be decremented by the
+// non-matching N1 (which the old code did, wrongly clamping to 0).
+func TestApplyAuthorRemainingNotUnderReported(t *testing.T) {
+	srv := authorFilterServer(t)
+	defer srv.Close()
+	stdin := `[{"threadId":"M1","body":"fix m1"},{"threadId":"N1","body":"fix n1"}]`
+	code, out, _ := invoke(srv, stdin, "apply", "-repo", "o/r", "-pr", "5", "-author", "alice")
+	require.Equal(t, exitOK, code)
+	assert.Contains(t, out, "ok M1")
+	assert.Contains(t, out, "ok N1")
+	// applied is the TOTAL resolved this run (2); remaining counts only matching M2.
+	assert.Contains(t, out, "applied 2/2; remaining unresolved: 1")
+	assert.NotContains(t, out, "remaining unresolved: 0")
+}
+
+// TestApplyEmptyAuthorRemainingUnchanged confirms author=="" still derives remaining
+// from the total Applied (matchedApplied == Applied): baseline {T1,T2,T4}=3, resolve two
+// (T1,T4) => remaining 1.
+func TestApplyEmptyAuthorRemainingUnchanged(t *testing.T) {
+	srv := listServer(t)
+	defer srv.Close()
+	stdin := `[{"threadId":"T1","body":"x"},{"threadId":"T4","body":"y"}]`
+	code, out, _ := invoke(srv, stdin, "apply", "-repo", "o/r", "-pr", "5")
+	require.Equal(t, exitOK, code)
+	assert.Contains(t, out, "applied 2/2; remaining unresolved: 1")
+}
+
 func TestApplyResolveFailure(t *testing.T) {
 	// Reply 201 but resolve mutation errors -> resolve-fail, exit 1.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
