@@ -38,6 +38,25 @@ updates:
   # auto-downloads + caches the prebuilt binary from the GitHub Release on first
   # use, so there is no npm package or platform-binary dependency for Dependabot.
 
+  # Keep review-fixer's TS plugin dependencies current.
+  - package-ecosystem: "bun"
+    directory: "/plugins/review-fixer"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # NOTE: review-fixer has no npm distribution to track — its OpenCode plugin
+  # auto-downloads + caches the prebuilt binary from the GitHub Release on first
+  # use, so there is no npm package or platform-binary dependency for Dependabot.
+
   # Keep GitHub Actions current. Because the workflows pin actions to full
   # commit SHAs, Dependabot bumps the SHA and updates the trailing # vX.Y.Z
   # comment, preserving the pin while staying patched.

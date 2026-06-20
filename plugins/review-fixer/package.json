@@ -1,5 +1,5 @@
 {
-  "name": "opencode-gogate-plugin",
+  "name": "opencode-review-fixer-plugin",
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
@@ -9,11 +9,12 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/maros7/omos.git",
-    "directory": "plugins/gogate"
+    "directory": "plugins/review-fixer"
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "SKILL.md"
   ],
   "license": "MIT",
   "scripts": {
