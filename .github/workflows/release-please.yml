@@ -19,6 +19,9 @@ jobs:
       release_created: ${{ steps.release.outputs['plugins/tripwire--release_created'] }}
       tag_name: ${{ steps.release.outputs['plugins/tripwire--tag_name'] }}
     steps:
+      # Installs an egress monitor on the runner with `egress-policy: block`, so
+      # only the hosts in `allowed-endpoints` below are reachable. Keep that
+      # allowlist in sync with this job's tools.
       - name: Harden the runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -43,6 +46,9 @@ jobs:
       id-token: write # OIDC for npm Trusted Publishing
       contents: read
     steps:
+      # Installs an egress monitor on the runner with `egress-policy: block`, so
+      # only the hosts in `allowed-endpoints` below are reachable. Keep that
+      # allowlist in sync with this job's tools (setup-node provisions Node 24).
       - name: Harden the runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -51,6 +57,10 @@ jobs:
             github.com:443
             api.github.com:443
             codeload.github.com:443
+            raw.githubusercontent.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            nodejs.org:443
             registry.npmjs.org:443
             fulcio.sigstore.dev:443
             rekor.sigstore.dev:443

@@ -13,6 +13,9 @@ jobs:
       contents: write # create the GitHub Release and upload artifacts
       id-token: write # OIDC for provenance / trusted publishing
     steps:
+      # Installs an egress monitor on the runner with `egress-policy: block`, so
+      # only the hosts in `allowed-endpoints` below are reachable. Keep that
+      # allowlist in sync with this job's tools.
       - name: Harden the runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -29,7 +32,9 @@ jobs:
             dl.google.com:443
             proxy.golang.org:443
             sum.golang.org:443
+            storage.googleapis.com:443
             goreleaser.com:443
+            nodejs.org:443
             registry.npmjs.org:443
             fulcio.sigstore.dev:443
             rekor.sigstore.dev:443
