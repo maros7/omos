@@ -16,7 +16,8 @@ coverage:
 flags:
   go:
     paths:
-      - plugins/gogate/
+      - plugins/gogate/cmd/
+      - plugins/gogate/gogate/
     carryforward: true
   gogate-ts:
     paths:
