@@ -27,15 +27,33 @@ jobs:
     permissions:
       contents: read
     steps:
-      # First step: installs an egress monitor on the runner. `audit` (not
-      # `block`) because the Go toolchain + module proxy + golangci-lint pull
-      # from a wide, changing set of endpoints (proxy.golang.org, sum.golang.org,
-      # storage.googleapis.com, GitHub release assets); blocking is brittle here.
+      # First step: installs an egress monitor on the runner with
+      # `egress-policy: block`, so only the hosts in `allowed-endpoints` below
+      # are reachable. Keep that allowlist in sync with this job's tools — the
+      # Go toolchain + module proxy + golangci-lint reach proxy.golang.org,
+      # sum.golang.org, storage.googleapis.com, and GitHub release assets.
       - name: Harden the runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
-          egress-policy: audit
+          egress-policy: block
           disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            raw.githubusercontent.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            go.dev:443
+            dl.google.com:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            golangci-lint.run:443
+            cli.codecov.io:443
+            ingest.codecov.io:443
+            api.codecov.io:443
+            codecov.io:443
+            storage.googleapis.com:443
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
