@@ -3,10 +3,8 @@ name: CI gogate TS
 on:
   push:
     branches: [main]
-    paths:
-      - "plugins/gogate/**"
   # No path filter on pull_request: this check is REQUIRED by branch protection,
-  # so it must always report a status on every PR. Push is still path-scoped.
+  # so it must always report a status on every PR.
   pull_request:
     branches: [main]
 
