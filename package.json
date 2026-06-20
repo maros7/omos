@@ -4,5 +4,8 @@
   "type": "module",
   "workspaces": [
     "plugins/*"
-  ]
+  ],
+  "scripts": {
+    "bootstrap:npm": "bash scripts/bootstrap-npm.sh"
+  }
 }
