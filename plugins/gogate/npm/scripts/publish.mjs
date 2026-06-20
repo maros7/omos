@@ -112,14 +112,37 @@ function publishPlatform(p) {
   writeFileSync(join(pkgDir, "package.json"), JSON.stringify(manifest, null, 2) + "\n")
 
   console.log(`publishing ${pkgName}@${version}`)
-  npmPublish(pkgDir)
+  npmPublish(pkgDir, pkgName)
   rmSync(work, { recursive: true, force: true })
 }
 
-function npmPublish(cwd) {
+// Detect npm's "this exact name@version is already published" error so a
+// partially-completed bootstrap can be re-run idempotently. npm surfaces this
+// as E409 / EPUBLISHCONFLICT with text like "cannot publish over previously
+// published version". ANY OTHER failure must stay fatal.
+function isAlreadyPublishedError(text) {
+  return /E409|EPUBLISHCONFLICT|cannot publish over|previously published version/i.test(text)
+}
+
+function npmPublish(cwd, name) {
   const args = ["publish", "--access", "public"]
   if (dryRun) args.push("--dry-run")
-  execFileSync("npm", args, { cwd, stdio: "inherit" })
+  try {
+    // Capture (not inherit) so we can inspect npm's error text on failure,
+    // then forward the captured output for visibility.
+    const out = execFileSync("npm", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+    if (out) process.stdout.write(out)
+  } catch (err) {
+    const combined = `${err.stderr || ""}${err.stdout || ""}${err.message || ""}`
+    if (isAlreadyPublishedError(combined)) {
+      console.log(`⏭  ${name}@${version} already published, skipping`)
+      return
+    }
+    // Preserve original fatal behavior: forward npm's output and exit non-zero.
+    if (err.stdout) process.stdout.write(err.stdout)
+    if (err.stderr) process.stderr.write(err.stderr)
+    fail(`npm publish failed for ${name}@${version}`)
+  }
 }
 
 // 1. Rewrite the root package.json version + optionalDependency pins to the tag.
@@ -136,6 +159,6 @@ for (const p of platforms) publishPlatform(p)
 
 // 3. Publish the root launcher package last.
 console.log(`publishing gogate@${version}`)
-npmPublish(npmRoot)
+npmPublish(npmRoot, "gogate")
 
 console.log("done")

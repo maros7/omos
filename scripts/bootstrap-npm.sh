@@ -105,10 +105,19 @@ GITHUB_REF_NAME=v0.1.0 DIST_DIR="$PWD/dist" node plugins/gogate/npm/scripts/publ
 # once the release-please PR is merged. tripwire ships raw src/*.ts — no build
 # step — so a plain `npm publish` from its dir is all that's needed.
 echo "==> Publishing opencode-tripwire (to create the package) ..."
-(
-  cd plugins/tripwire
-  npm publish --access public
-)
+# Idempotent: if this exact version is already published, npm errors with
+# E409 / EPUBLISHCONFLICT ("cannot publish over previously published version").
+# Tolerate ONLY that case (skip + continue); any other npm failure stays fatal.
+tripwire_out=$(cd plugins/tripwire && npm publish --access public 2>&1) && tripwire_rc=0 || tripwire_rc=$?
+printf '%s\n' "$tripwire_out"
+if [[ $tripwire_rc -ne 0 ]]; then
+  if grep -qiE 'E409|EPUBLISHCONFLICT|cannot publish over|previously published version' <<<"$tripwire_out"; then
+    echo "⏭  opencode-tripwire already published, skipping"
+  else
+    echo "ERROR: opencode-tripwire publish failed (exit $tripwire_rc)." >&2
+    exit "$tripwire_rc"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Follow-up checklist
