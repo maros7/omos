@@ -120,10 +120,37 @@ export function evaluate(cfg: TripwireConfig, s: SessionState): {
   return { hard, warns }
 }
 
-/** Render the hard-tier message, joining all breached metric names with ", ". */
-function hardMessage(cfg: TripwireConfig, hard: HardBreach[]): string {
-  const first = hard[0]
-  return fmt(cfg.messages.hard, hard.map((h) => h.metric).join(", "), first.v, first.limit)
+/**
+ * Format one breach's OWN value/limit for the multi-breach message. Cost gets a
+ * `$` prefix (matches the counter line's unit convention); other metrics are
+ * bare. Value rounding matches `fmt()` so single- and multi-breach messages agree.
+ */
+function formatMetric(h: HardBreach): string {
+  const v = Math.round(h.v * 100) / 100
+  return h.metric === "cost" ? `cost at $${v}/$${h.limit}` : `${h.metric} at ${v}/${h.limit}`
+}
+
+/**
+ * Render the hard-tier message.
+ *
+ * Single breach: the configured `cfg.messages.hard` template is used VERBATIM
+ * (fully user-customizable), interpolating that one metric's value/limit.
+ *
+ * Multiple breaches: the template has a single {value}/{limit} slot, so reusing
+ * it would attribute the FIRST breach's numbers to every named metric (e.g.
+ * "cost, steps hit 15 (limit 10)" made steps look 15/10 too). Instead each
+ * metric is rendered with its OWN value/limit (see formatMetric) and the
+ * per-metric fragments are joined, keeping the "TRIPWIRE HARD: … Stop now …"
+ * framing. Tradeoff: the multi-breach wording is not template-driven (the
+ * single-breach path — the common case — stays fully customizable).
+ */
+export function hardMessage(cfg: TripwireConfig, hard: HardBreach[]): string {
+  if (hard.length === 1) {
+    const only = hard[0]
+    return fmt(cfg.messages.hard, only.metric, only.v, only.limit)
+  }
+  const fragments = hard.map(formatMetric).join(", ")
+  return `TRIPWIRE HARD: ${fragments}. Stop now — split the session or delegate the remaining work.`
 }
 
 export const TripwirePlugin: Plugin = async ({ client, directory }, options?: unknown) => {

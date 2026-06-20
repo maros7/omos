@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { evaluate, newState, TripwirePlugin, type SessionState } from "./index"
+import { evaluate, hardMessage, newState, TripwirePlugin, type SessionState } from "./index"
 import { DEFAULTS, type TripwireConfig } from "./config"
 
 /** Build a minimal config: DEFAULTS with specific budget overrides. */
@@ -55,26 +55,41 @@ describe("evaluate", () => {
     expect(hard[1]).toEqual({ metric: "steps", v: 130, limit: 100 })
   })
 
-  test("the rendered abort message names BOTH breached metrics, joined by comma", () => {
-    // This is the regression guard: previously only "cost" would appear.
+  test("single-breach hardMessage is the verbatim template (regression guard)", () => {
+    const cfg = cfgWith({ cost: { hard: 10 } })
+    const s = stateWith({ cost: 12 })
+    const { hard } = evaluate(cfg, s)
+    // EXACT verbatim rendering of cfg.messages.hard for one breach — must not drift.
+    expect(hardMessage(cfg, hard)).toBe(
+      "TRIPWIRE HARD: cost hit 12 (limit 10). Stop now — split the session or delegate the remaining work.",
+    )
+  })
+
+  test("multi-breach hardMessage renders EACH metric's OWN value/limit (not the first's)", () => {
+    // Two breaches with DIFFERENT value/limit pairs so any misattribution shows up.
+    // (cost 15/10 vs steps 130/100 — the numbers are deliberately distinct.)
     const cfg = cfgWith({
       cost: { hard: 10 },
       steps: { hard: 100 },
     })
     const s = stateWith({ cost: 15, steps: 130 })
     const { hard } = evaluate(cfg, s)
-    // Mirror hardMessage() inline so we don't need to export it; the contract
-    // under test is that all names are interpolatable into the message.
-    const names = hard.map((h) => h.metric).join(", ")
-    const rendered = cfg.messages.hard
-      .replace("{metric}", names)
-      .replace("{value}", String(hard[0].v))
-      .replace("{limit}", String(hard[0].limit))
-    expect(rendered).toContain("cost, steps")
-    expect(rendered).toContain("HARD")
+    expect(hard.map((h) => h.metric)).toEqual(["cost", "steps"])
+    const msg = hardMessage(cfg, hard)
+    // Each metric carries its OWN value and limit.
+    expect(msg).toContain("cost at $15/$10")
+    expect(msg).toContain("steps at 130/100")
+    expect(msg).toContain("HARD")
+    expect(msg).toContain("Stop now")
+    // Regression guards: the OLD code rendered "cost, steps hit 15 (limit 10)",
+    // attributing the first breach's numbers to every named metric. None of
+    // those misattributions may appear.
+    expect(msg).not.toContain("hit 15 (limit 10)")
+    expect(msg).not.toContain("steps at $15")
+    expect(msg).not.toContain("cost at 130")
   })
 
-  test("three hard breaches are all reported", () => {
+  test("three hard breaches are all reported, each with its own value/limit", () => {
     const cfg = cfgWith({
       cost: { hard: 10 },
       steps: { hard: 100 },
@@ -83,6 +98,10 @@ describe("evaluate", () => {
     const s = stateWith({ cost: 11, steps: 101, edits: 41 })
     const { hard } = evaluate(cfg, s)
     expect(hard.map((h) => h.metric)).toEqual(["cost", "steps", "edits"])
+    const msg = hardMessage(cfg, hard)
+    expect(msg).toContain("cost at $11/$10")
+    expect(msg).toContain("steps at 101/100")
+    expect(msg).toContain("edits at 41/40")
   })
 
   test("reads metric uses maxReads, not the reads Map size", () => {
