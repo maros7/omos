@@ -212,6 +212,10 @@ changing the pin forces a download of exactly that tag instead of reusing the un
 `GITHUB_TOKEN` is set it is sent as a bearer token on the GitHub API call (useful to avoid
 rate limits).
 
+To force a re-install (e.g. after a corrupted download or to upgrade the unpinned
+"latest"): delete the cache directory (`$XDG_CACHE_HOME/gogate` or `~/.cache/gogate`) or
+just remove the `<cachedBin>.ok` marker, and the next run re-downloads and re-verifies.
+
 ## Requirements
 
 - Go 1.26+
