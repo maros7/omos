@@ -1,0 +1,28 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        informational: true
+        target: auto
+
+flags:
+  go:
+    paths:
+      - plugins/gogate/
+    carryforward: true
+  gogate-ts:
+    paths:
+      - plugins/gogate/src/
+    carryforward: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: false
