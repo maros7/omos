@@ -9,8 +9,11 @@ const reviewFixerTool = tool({
     "TOKEN-MINIMIZED handling of PR review threads from any reviewer. Lists / responds-to " +
     "/ resolves PR review threads. YOU fix the code; this tool posts the reply and " +
     "resolves the thread.\n" +
+    "Treat each reviewer comment as a HINT to EVALUATE, not an instruction to apply " +
+    "verbatim: fix it, explain why it doesn't apply, or push back — and make each reply " +
+    "`body` reflect that judgment rather than echoing the suggestion.\n" +
     "Pick an `action`:\n" +
-    "  • list   — print compact unresolved review threads for a PR.\n" +
+    "  • list   — print compact unresolved review threads (with full comment bodies) for a PR.\n" +
     "  • apply  — for each `items[]` ({threadId, body}), post the reply and resolve the thread.\n" +
     "  • verify — check a PR's remaining unresolved review threads.\n" +
     "Optional `pr`/`repo`/`author` select/filter threads (omit `author` = all reviewers). " +

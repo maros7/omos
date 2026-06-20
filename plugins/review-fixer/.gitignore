@@ -1,0 +1,2 @@
+# Locally built binary (resolve.ts checks <plugin>/bin/review-fixer for dev)
+bin/

@@ -18,17 +18,28 @@ const (
 	exitUsage = 2
 )
 
-const usage = `review-fixer [global flags] <subcommand> [flags]
+const usage = `review-fixer — minimize the tokens spent handling PR review threads.
+
+Workflow:  list  ->  (you read each comment, then edit the code yourself)  ->  apply
+Each reviewer comment is a HINT to EVALUATE, not to apply verbatim: fix it, explain
+why it doesn't apply, or push back — and make the reply body reflect that judgment.
+
+usage: review-fixer [global flags] <subcommand> [flags]
 global flags (must precede the subcommand):
   -token string      GitHub token (else $GH_TOKEN, $GITHUB_TOKEN, or ` + "`gh auth token`" + `)
   -api-base string   GitHub API base URL (default https://api.github.com)
   -format text|json  output format (default text)
 subcommands:
-  list     [-pr N] [-repo o/n] [-author SUBSTR]
-  apply    [-pr N] [-repo o/n] [-author SUBSTR]   (reads STDIN JSON [{threadId,body}])
-  verify   [-pr N] [-repo o/n] [-author SUBSTR]
+  list     [-pr N] [-repo o/n] [-author SUBSTR]   print unresolved threads with full comment bodies
+  apply    [-pr N] [-repo o/n] [-author SUBSTR]   reads STDIN JSON [{threadId,body}]; replies + resolves each
+  verify   [-pr N] [-repo o/n] [-author SUBSTR]   count threads still unresolved
   reply    -thread-id PRRT_… -body STR [-pr N] [-repo o/n]
-  resolve  -thread-id PRRT_…`
+  resolve  -thread-id PRRT_…
+examples:
+  review-fixer list -repo o/n -pr 5
+  echo '[{"threadId":"PRRT_…","body":"Fixed: added the nil check."}]' | review-fixer apply -repo o/n -pr 5
+  review-fixer verify -repo o/n -pr 5
+Run "<subcommand> -h" for details (e.g. "list -h" documents the -format=json schema).`
 
 // Main is the CLI entry point. It wires the real exec Runner and HTTP client and
 // dispatches to the requested subcommand, returning a process exit code.
@@ -51,6 +62,7 @@ type globals struct {
 func run(args []string, stdout, stderr io.Writer, stdin io.Reader, r Runner, hc *http.Client) int {
 	fs := flag.NewFlagSet("review-fixer", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() { _, _ = fmt.Fprintln(fs.Output(), usage) }
 	g := globals{
 		token:   fs.String("token", "", "GitHub token"),
 		apiBase: fs.String("api-base", "https://api.github.com", "GitHub API base URL"),
@@ -164,9 +176,30 @@ func resolveScope(ctx context.Context, r Runner, hc *http.Client, g globals, rep
 	return scope{cl: cl, owner: owner, repo: name, pr: prNum}, exitOK, true
 }
 
+// listJSONSchema documents the exact shape `-format=json list` emits, so a programmatic
+// consumer never has to guess it. It mirrors the listItem struct in report.go.
+const listJSONSchema = `
+-format=json output: a bare JSON array (no envelope), one object per unresolved thread:
+  [{"threadId":"PRRT_…","path":"file.go","line":42,"author":"login","body":"full comment text"}]
+fields:
+  threadId  string  thread id (pass to apply/reply/resolve)
+  path      string  file path ("" when the thread has no file)
+  line      int     line number (0 when absent)
+  author    string  originator (first comment) login
+  body      string  full originator comment body (all lines)
+(text output shows the same threads with full, indented comment bodies.)
+`
+
 func runList(ctx context.Context, args []string, stdout, stderr io.Writer, r Runner, hc *http.Client, g globals) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		out := fs.Output()
+		_, _ = fmt.Fprintln(out, "usage: review-fixer [globals] list [-pr N] [-repo o/n] [-author SUBSTR]")
+		_, _ = fmt.Fprintln(out, "flags:")
+		fs.PrintDefaults()
+		_, _ = fmt.Fprint(out, listJSONSchema)
+	}
 	pr := fs.Int("pr", 0, "pull request number (0 = autodetect from branch)")
 	repo := fs.String("repo", "", "owner/name (default: gh repo view)")
 	author := fs.String("author", "", "only threads whose originator login contains this")

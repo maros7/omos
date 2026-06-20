@@ -79,6 +79,10 @@ func TestRunHelp(t *testing.T) {
 	for _, h := range []string{"-h", "-help", "--help"} {
 		var out, errb bytes.Buffer
 		assert.Equal(t, exitOK, run([]string{h}, &out, &errb, nil, errRunner(), http.DefaultClient))
+		// Top-level help is self-describing: workflow, the HINT framing, and examples.
+		assert.Contains(t, errb.String(), "Workflow:")
+		assert.Contains(t, errb.String(), "HINT")
+		assert.Contains(t, errb.String(), "examples:")
 	}
 }
 
@@ -167,7 +171,8 @@ func TestListDefaultAllAuthors(t *testing.T) {
 	require.Equal(t, exitOK, code)
 	assert.Contains(t, out, "PR #5 o/r: 3 unresolved thread(s)")
 	assert.Contains(t, out, "[1] T1  a.go:3  (Copilot)  +1")
-	assert.Contains(t, out, "fix")
+	// Full originator body is rendered, every line indented 4 spaces (no JSON detour).
+	assert.Contains(t, out, "    fix\n    this")
 	assert.Contains(t, out, "T2  b.go  (human)")
 	assert.Contains(t, out, "T4  -  (copilot-bot)")
 	assert.NotContains(t, out, "T3", "resolved thread excluded")
@@ -205,6 +210,11 @@ func TestListFlagError(t *testing.T) {
 func TestListHelp(t *testing.T) {
 	var out, errb bytes.Buffer
 	assert.Equal(t, exitOK, run([]string{"list", "-h"}, &out, &errb, nil, errRunner(), http.DefaultClient))
+	// list -h documents the exact -format=json envelope shape.
+	help := errb.String()
+	assert.Contains(t, help, "bare JSON array")
+	assert.Contains(t, help, "threadId")
+	assert.Contains(t, help, "body      string")
 }
 
 func TestListTokenError(t *testing.T) {

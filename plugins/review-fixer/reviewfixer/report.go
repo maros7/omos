@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
-// maxBodyLen caps how much of an originator comment body appears in compact output.
-const maxBodyLen = 200
+// maxBodyLen is a generous, UTF-8-safe safety cap on how much of an originator comment
+// body is shown in text output. Normal review comments are well under this and are never
+// truncated; the cap only guards against a pathological comment dumping unbounded text.
+const maxBodyLen = 4000
 
 // threadLoc renders a thread's "<path>:<line>" location, dropping the line when absent
 // and using "-" when there is no path at all.
@@ -35,13 +38,19 @@ func firstLine(s string) string {
 	return ""
 }
 
-// clip truncates s to at most n bytes.
+// clip truncates s to at most n bytes without splitting a multi-byte UTF-8 rune,
+// backing off to the nearest rune boundary at or before n so the output stays valid.
 func clip(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+	if len(s) <= n {
+		return s
 	}
 
-	return s
+	b := n
+	for b > 0 && !utf8.RuneStart(s[b]) {
+		b--
+	}
+
+	return s[:b]
 }
 
 // filterThreads keeps unresolved threads, optionally restricting to those whose
@@ -99,10 +108,34 @@ func renderList(format string, pr int, owner, repo string, threads []Thread) str
 	fmt.Fprintf(&b, "PR #%d %s/%s: %d unresolved thread(s)\n", pr, owner, repo, len(threads))
 	for i, t := range threads {
 		fmt.Fprintf(&b, "[%d] %s  %s  (%s)%s\n", i+1, t.ID, threadLoc(t), t.Author, replyMarker(t.Replies))
-		fmt.Fprintf(&b, "    %s\n", firstLine(t.Body))
+		renderBody(&b, t.Body)
 	}
 
 	return b.String()
+}
+
+// renderBody writes the FULL originator comment body under its thread entry, indenting
+// every line by four spaces so a multi-paragraph comment stays visually attached. The
+// body is shown in full (so the agent never needs the JSON detour just to read it),
+// bounded only by the UTF-8-safe maxBodyLen safety cap.
+func renderBody(b *strings.Builder, body string) {
+	if firstLine(body) == "" {
+		fmt.Fprintln(b, "    (no comment body)")
+
+		return
+	}
+
+	capped := strings.TrimRight(clip(body, maxBodyLen), "\n")
+	for ln := range strings.SplitSeq(capped, "\n") {
+		ln = strings.TrimRight(ln, " \t\r")
+		if ln == "" {
+			fmt.Fprintln(b)
+
+			continue
+		}
+
+		fmt.Fprintf(b, "    %s\n", ln)
+	}
 }
 
 // replyMarker renders "  +N" when a thread has reply comments, else "".
