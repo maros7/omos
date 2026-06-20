@@ -42,6 +42,8 @@ export type TripwireConfig = {
   blockTools: string[]
   /** Fully customizable injected text. {metric} {value} {limit} are interpolated. */
   messages: { warn: string; hard: string }
+  /** Opt-in JSONL session-summary logging (one cumulative line per N steps). */
+  log: { enabled: boolean; path: string; every: number }
 }
 
 export const DEFAULTS: TripwireConfig = {
@@ -70,6 +72,15 @@ export const DEFAULTS: TripwireConfig = {
   messages: {
     warn: "TRIPWIRE WARN: {metric} at {value} (warn {limit}). Wrap up the current step, checkpoint, and consider splitting or delegating before continuing.",
     hard: "TRIPWIRE HARD: {metric} hit {value} (limit {limit}). Stop now — split the session or delegate the remaining work.",
+  },
+  log: {
+    enabled: false,
+    path: join(
+      process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+      "opencode",
+      "opencode-tripwire.sessions.jsonl",
+    ),
+    every: 1,
   },
 }
 
@@ -138,6 +149,15 @@ function envOverrides(): Partial<TripwireConfig> {
   const num = (v?: string) => (v != null && v !== "" && !isNaN(+v) ? +v : undefined)
   const o: any = { budgets: {} }
   if (e.OPENCODE_TRIPWIRE_DISABLED === "1" || e.OPENCODE_TRIPWIRE === "off") o.enabled = false
+  if (e.OPENCODE_TRIPWIRE_LOG != null) {
+    const falsy = new Set(["0", "false", "off", "no", ""])
+    o.log = { ...(o.log ?? {}), enabled: !falsy.has(e.OPENCODE_TRIPWIRE_LOG.toLowerCase()) }
+  }
+  if (e.OPENCODE_TRIPWIRE_LOG_PATH) o.log = { ...(o.log ?? {}), path: e.OPENCODE_TRIPWIRE_LOG_PATH }
+  if (e.OPENCODE_TRIPWIRE_LOG_EVERY) {
+    const n = parseInt(e.OPENCODE_TRIPWIRE_LOG_EVERY, 10)
+    if (!isNaN(n)) o.log = { ...(o.log ?? {}), every: n }
+  }
   const map: Record<string, string> = {
     OPENCODE_TRIPWIRE_COST_HARD: "cost",
     OPENCODE_TRIPWIRE_STEPS_HARD: "steps",
