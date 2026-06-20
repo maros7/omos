@@ -147,6 +147,28 @@ describe("resolveBinary — resolution order", () => {
     expect(fetched).toBe(true)
     expect(deps.writes.some((w) => w.p === marker)).toBe(true)
   })
+
+  test("3c. BUG C: empty XDG_CACHE_HOME is treated as unset (falls back to default)", async () => {
+    // `deps.env` isolates this from process.env, so no save/restore is required: this
+    // exercises the cacheDir() lookup directly. The default absolute cached bin lives
+    // under the injected homedir, NOT under "" (which would be a relative "gogate/bin/...").
+    const defaultCached = join("/home/u", ".cache", "gogate", "bin", "gogate")
+    const defaultMarker = `${defaultCached}.ok`
+    let fetched = false
+    const deps = makeDeps({
+      env: { XDG_CACHE_HOME: "" },
+      // Only the DEFAULT-path binary+marker satisfy a cache hit. If "" were used as the
+      // root, the cached bin would be the relative "gogate/bin/gogate" and this would
+      // miss → fall through to a network install (and throw).
+      exists: (p) => p === defaultCached || p === defaultMarker,
+      fetch: (async () => {
+        fetched = true
+        return makeResponse({ json: {} })
+      }) as unknown as typeof fetch,
+    })
+    expect(await resolveBinary("/proj", deps)).toEqual([defaultCached])
+    expect(fetched).toBe(false)
+  })
 })
 
 describe("resolveBinary — cold install", () => {

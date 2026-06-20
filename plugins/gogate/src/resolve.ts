@@ -71,7 +71,10 @@ function binaryName(platform: string): string {
 }
 
 function cacheDir(deps: ResolveDeps): string {
-  const root = deps.env.XDG_CACHE_HOME ?? join(deps.homedir(), ".cache")
+  // `||` (not `??`): an EMPTY XDG_CACHE_HOME must fall back to the default, otherwise
+  // the cache root becomes "" and the cached binary lands at a relative "gogate/bin/..."
+  // in the CWD. Only a real (non-empty) value is honored.
+  const root = deps.env.XDG_CACHE_HOME || join(deps.homedir(), ".cache")
   return join(root, "gogate")
 }
 
