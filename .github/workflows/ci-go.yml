@@ -48,6 +48,7 @@ jobs:
             dl.google.com:443
             proxy.golang.org:443
             sum.golang.org:443
+            golangci-lint.run:443
             cli.codecov.io:443
             ingest.codecov.io:443
             api.codecov.io:443
