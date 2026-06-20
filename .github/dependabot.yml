@@ -34,11 +34,9 @@ updates:
           - "minor"
           - "patch"
 
-  # NOTE: plugins/gogate/npm is deliberately NOT tracked. Its only dependencies
-  # are the @gogate/<os>-<arch> platform binaries, which are release-managed by
-  # npm/scripts/publish.mjs (version-locked to the launcher) and are not
-  # independently resolvable on the registry — Dependabot 404s on them and the
-  # job fails. There is nothing there for Dependabot to usefully update.
+  # NOTE: gogate has no npm distribution to track — its OpenCode plugin
+  # auto-downloads + caches the prebuilt binary from the GitHub Release on first
+  # use, so there is no npm package or platform-binary dependency for Dependabot.
 
   # Keep GitHub Actions current. Because the workflows pin actions to full
   # commit SHAs, Dependabot bumps the SHA and updates the trailing # vX.Y.Z

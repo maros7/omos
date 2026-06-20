@@ -38,7 +38,16 @@ const gogateTool = tool({
   },
   async execute(args, context) {
     const dir = context.directory
-    const argv = resolveBinary(dir)
+
+    let argv: string[]
+    try {
+      // First use may download + cache the binary from the GitHub Release.
+      argv = await resolveBinary(dir)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      return `gogate: could not install binary: ${message}`
+    }
+
     // Request the compact text report — easier for the model to read than JSON.
     const flags = [...argv.slice(1), "-format=text"]
     if (args.rerunFails) flags.push(`-rerun-fails=${args.rerunFails}`)
@@ -63,7 +72,15 @@ export const GoGate: Plugin = async ({ directory }) => {
       if (process.env.GOGATE_MODE?.toLowerCase() === "off") return
 
       const cmd = String(output.args?.command ?? "")
-      const argv = resolveBinary(directory)
+
+      let argv: string[]
+      try {
+        // First use may download + cache the binary from the GitHub Release. If that
+        // fails, leave the model's bash command untouched rather than breaking it.
+        argv = await resolveBinary(directory)
+      } catch {
+        return
+      }
 
       // Emit the compact text report (easier for the model to read than JSON).
       const flags = ["-format=text"]
