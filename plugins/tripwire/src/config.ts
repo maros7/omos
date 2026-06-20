@@ -161,8 +161,10 @@ function readConfigFile(path: string): Partial<TripwireConfig> | null {
  * so a user cannot null-out a nested config block by passing `{ budgets: null }`,
  * `{ messages: null }`, etc. This is intentional: config blocks carry required
  * keys with sensible defaults, and a partial override must not be able to wipe
- * a whole required subtree. To disable a metric's budget, omit it or set its
- * tiers to 0/undefined — do not rely on `null` to clear it.
+ * a whole required subtree. Omitting a metric (or passing `{}`) keeps its
+ * defaults — it does NOT disable the budget. To disable a metric's budget,
+ * explicitly set its tiers to 0 (or, for programmatic PluginOptions,
+ * `undefined`) — do not rely on `null` or omission to clear it.
  */
 export function merge<T>(base: T, over: any): T {
   if (over == null) return base

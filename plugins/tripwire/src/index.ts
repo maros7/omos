@@ -145,6 +145,7 @@ function formatMetric(h: HardBreach): string {
  * single-breach path — the common case — stays fully customizable).
  */
 export function hardMessage(cfg: TripwireConfig, hard: HardBreach[]): string {
+  if (hard.length === 0) return ""
   if (hard.length === 1) {
     const only = hard[0]
     return fmt(cfg.messages.hard, only.metric, only.v, only.limit)
