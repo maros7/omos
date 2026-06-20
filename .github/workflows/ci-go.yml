@@ -1,0 +1,64 @@
+name: CI Go
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/gogate/**"
+      - "go.mod"
+      - "go.sum"
+      - ".golangci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "plugins/gogate/**"
+      - "go.mod"
+      - "go.sum"
+      - ".golangci.yml"
+
+# Deny-by-default at the top level. This uses `pull_request` (NOT
+# `pull_request_target`), so PRs from forks run with a read-only GITHUB_TOKEN
+# and no access to repo secrets — do not change that trigger.
+permissions: {}
+
+jobs:
+  go:
+    name: Go gate
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      # First step: installs an egress monitor on the runner. `audit` (not
+      # `block`) because the Go toolchain + module proxy + golangci-lint pull
+      # from a wide, changing set of endpoints (proxy.golang.org, sum.golang.org,
+      # storage.googleapis.com, GitHub release assets); blocking is brittle here.
+      - name: Harden the runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Don't leave the auth token in .git/config where dependency code could read it.
+          persist-credentials: false
+
+      # Toolchain version comes from go.mod (single source of truth).
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+      # Pinned (not "latest") so the linter set is reproducible. golangci-lint v2.
+      - name: Lint
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
+        with:
+          version: v2.11.4

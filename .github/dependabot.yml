@@ -1,0 +1,66 @@
+version: 2
+
+updates:
+  # Keep tripwire's dependencies (package.json + bun.lock) current. Uses the
+  # native "bun" ecosystem so Dependabot updates bun.lock itself (the "npm"
+  # ecosystem leaves bun.lock stale, which breaks
+  # `bun install --frozen-lockfile` in CI).
+  - package-ecosystem: "bun"
+    directory: "/plugins/tripwire"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Keep gogate's TS plugin dependencies current.
+  - package-ecosystem: "bun"
+    directory: "/plugins/gogate"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Keep gogate's npm distribution packages current.
+  - package-ecosystem: "bun"
+    directory: "/plugins/gogate/npm"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Keep GitHub Actions current. Because the workflows pin actions to full
+  # commit SHAs, Dependabot bumps the SHA and updates the trailing # vX.Y.Z
+  # comment, preserving the pin while staying patched.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        update-types:
+          - "minor"
+          - "patch"

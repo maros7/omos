@@ -1,0 +1,24 @@
+{
+  "name": "gogate",
+  "version": "0.1.0",
+  "description": "Go quality gate (build + test + lint) with structured output, runnable via bunx/npx.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maros7/omos.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "gogate": "bin/gogate.cjs"
+  },
+  "files": [
+    "bin/gogate.cjs"
+  ],
+  "optionalDependencies": {
+    "@gogate/darwin-amd64": "0.1.0",
+    "@gogate/darwin-arm64": "0.1.0",
+    "@gogate/linux-amd64": "0.1.0",
+    "@gogate/linux-arm64": "0.1.0",
+    "@gogate/windows-amd64": "0.1.0",
+    "@gogate/windows-arm64": "0.1.0"
+  }
+}

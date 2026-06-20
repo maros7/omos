@@ -1,0 +1,8 @@
+{
+  "name": "omos",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "plugins/*"
+  ]
+}

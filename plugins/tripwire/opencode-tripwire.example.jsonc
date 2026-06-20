@@ -1,0 +1,58 @@
+// opencode-tripwire — example configuration (JSONC: comments + trailing commas OK).
+//
+// Copy to ONE of these (all keys optional; omit anything to keep the default):
+//   user-global : ~/.config/opencode/opencode-tripwire.jsonc
+//   project     : <repo>/.opencode/opencode-tripwire.jsonc   (overrides user-global)
+//
+// Precedence (low -> high):
+//   defaults  <  opencode.json PluginOptions  <  user file  <  project file  <  env vars
+//
+// You never edit plugin code to tune behaviour — only this file (or env vars).
+{
+  // Master switch. Or set env OPENCODE_TRIPWIRE_DISABLED=1 for a one-off run.
+  "enabled": true,
+
+  // Two-tier budgets per metric. Set a tier to 0 to disable just that tier.
+  //   warn -> nudge injected into the turn (once per metric)
+  //   hard -> onHard action fires (abort / block / inject)
+  // "reads" is counted PER FILE (re-reading the same file is the signal).
+  "budgets": {
+    "cost":        { "warn": 5,  "hard": 12 },   // USD accumulated this session
+    "steps":       { "warn": 40, "hard": 120 },  // assistant steps (model turns)
+    "edits":       { "warn": 10, "hard": 50 },   // edit/write tool calls
+    "tools":       { "warn": 80, "hard": 250 },  // total tool calls
+    "compactions": { "warn": 2,  "hard": 4 },    // compress/compaction calls
+    "reads":       { "warn": 2,  "hard": 5 },    // reads of the SAME file
+  },
+
+  // Which tool names count as each class (match your opencode tool names).
+  "toolClasses": {
+    "edit":    ["edit", "write", "patch", "apply_patch", "multiedit"],
+    "read":    ["read"],
+    "compact": ["compress", "compact"],
+  },
+
+  // Live budget line injected into the orchestrator's system prompt each turn.
+  "counter": {
+    "inject": true,
+    "format": "compact",      // "compact" | "verbose"
+    "label": "[BUDGET]",
+  },
+
+  "onWarn": "inject",          // "inject" | "off"
+
+  // What happens when ANY metric crosses its hard tier:
+  //   "abort"  -> client.session.abort() (stops the next step)
+  //   "block"  -> throw on the tools listed in blockTools (lets the model react)
+  //   "inject" -> only inject the hard message (no stop)
+  //   "off"    -> count only, do nothing
+  "onHard": "abort",
+
+  "blockTools": ["bash", "write", "edit", "patch", "apply_patch"],
+
+  // {metric} {value} {limit} are interpolated.
+  "messages": {
+    "warn": "TRIPWIRE WARN: {metric} at {value} (warn {limit}). Wrap up the current step, checkpoint, and consider splitting or delegating before continuing.",
+    "hard": "TRIPWIRE HARD: {metric} hit {value} (limit {limit}). Stop now — split the session or delegate the remaining work.",
+  },
+}

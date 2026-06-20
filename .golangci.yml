@@ -1,0 +1,65 @@
+version: "2"
+run:
+  modules-download-mode: readonly
+linters:
+  default: all
+  disable:
+    - depguard # no import-allowlist policy to enforce in a project this small
+    - err113 # dynamic fmt.Errorf is fine here; we don't expose sentinel errors to compare against
+    - exhaustruct # zero-valued struct fields are intentional (e.g. Step built incrementally)
+    - goconst # the few repeated string literals read clearer inline than as named constants
+    - mnd # small literals (timeouts, caps, exit codes) are clear in context; flagging them is noise
+    - nlreturn # blank-line-before-return is already governed by wsl_v5's return rule; avoid a second, stricter one
+    - noinlineerr # the idiomatic `if err := f(); err != nil` inline form is wanted
+    - nonamedreturns # named returns are used deliberately for documentation (e.g. capDiagnostics)
+    - paralleltest # tests share the real toolchain; parallelism risks contention, not worth it
+    - tagliatelle # parser structs mirror go/golangci-lint's PascalCase JSON; can't share one convention with our camelCase output
+    - testpackage # tests are intentionally white-box (exercise unexported funcs for full coverage)
+    - varnamelen # short receiver/loop names (r, b, e, s) are idiomatic and readable here
+    - wrapcheck # we surface tool errors as report fields, not by wrapping every returned error
+    - wsl # superseded by the explicitly configured wsl_v5 below
+  settings:
+    funlen:
+      lines: 120
+      statements: 80
+    govet:
+      disable:
+        - shadow # shadowing err/ok in short scopes is idiomatic and harmless
+        - fieldalignment # reordering rarely-built structs for a few bytes also reorders JSON keys
+      enable-all: true
+    lll:
+      line-length: 200
+    testifylint:
+      enable-all: true
+      disable:
+        - require-error # use require only when a failure must stop the test; assert.Error elsewhere is fine
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 6
+      case-max-lines: 0
+      default: none
+      enable:
+        - branch
+        - return
+        - leading-whitespace
+        - trailing-whitespace
+  exclusions:
+    rules:
+      # Complexity metrics are noise on test scaffolding (table-driven cases, fake-runner
+      # closures); don't enforce them on _test.go.
+      - path: _test\.go
+        linters:
+          - cyclop
+          - funlen
+          - gocognit
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  fix: false
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports

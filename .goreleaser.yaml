@@ -1,0 +1,33 @@
+version: 2
+project_name: gogate
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: gogate
+    main: ./plugins/gogate/cmd/gogate
+    binary: gogate
+    env:
+      - CGO_ENABLED=0 # static binaries, no libc dependency
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+
+archives:
+  - id: gogate
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "gogate_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: maros7
+    name: omos

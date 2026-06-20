@@ -1,0 +1,40 @@
+{
+  "name": "opencode-tripwire",
+  "version": "0.1.1",
+  "description": "Enforceable per-session cost/step budgets for OpenCode — counts steps/cost/edits/reads/compactions, injects a live budget line into the orchestrator's turn, and warns or hard-aborts at configurable ceilings.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maros7/omos.git",
+    "directory": "plugins/tripwire"
+  },
+  "files": [
+    "src",
+    "opencode-tripwire.example.jsonc",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "cost",
+    "budget",
+    "tripwire",
+    "guardrail"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.14.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.17.8",
+    "@types/node": "26.0.0",
+    "typescript": "6.0.3"
+  }
+}
