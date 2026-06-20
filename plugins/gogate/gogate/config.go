@@ -6,7 +6,6 @@ import "time"
 const (
 	StepBuild = "build"
 	StepTest  = "test"
-	StepVet   = "vet"
 	StepLint  = "lint"
 )
 

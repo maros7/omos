@@ -134,9 +134,11 @@ func Test_testArgsFor(t *testing.T) {
 	assert.True(t, ok)
 	assert.Nil(t, args)
 
-	args, ok = testArgsFor([]string{"go", "vet"})
-	assert.True(t, ok)
-	assert.Nil(t, args)
+	// go vet is NOT recognized: the gate has no vet step, so accepting it would
+	// silently drop the user's command. It returns the same false as other
+	// unsupported commands.
+	_, ok = testArgsFor([]string{"go", "vet", "./..."})
+	assert.False(t, ok)
 
 	// unrecognized
 	_, ok = testArgsFor([]string{"go", "mod", "tidy"})
@@ -403,7 +405,6 @@ func Test_recognizeCommand(t *testing.T) {
 	}{
 		{[]string{"go", "build", "./..."}, StepBuild, []string{"./..."}},
 		{[]string{"go", "test", "-run", "X"}, StepTest, []string{"-run", "X"}},
-		{[]string{"go", "vet"}, StepVet, []string{}},
 		{[]string{"golangci-lint", "run", "./pkg"}, StepLint, []string{"./pkg"}},
 	} {
 		step, rest, ok := recognizeCommand(tc.cmd)
@@ -412,8 +413,12 @@ func Test_recognizeCommand(t *testing.T) {
 		assert.Equal(t, tc.rest, rest)
 	}
 
+	// `go vet` is intentionally NOT recognized: the gate has no vet step, so accepting
+	// it would silently drop the user's command. It now behaves like other unsupported
+	// commands (e.g. `go mod tidy`) and surfaces a visible "unrecognized command" step.
 	for _, cmd := range [][]string{
 		{"go", "mod", "tidy"},
+		{"go", "vet", "./..."},
 		{"go"},
 		{"golangci-lint", "version"},
 		{"ls"},
@@ -486,4 +491,17 @@ func TestRunUnrecognizedCommand(t *testing.T) {
 	require.Len(t, rep.Steps, 1)
 	assert.Equal(t, StatusError, rep.Steps[0].Status)
 	assert.Contains(t, rep.Steps[0].Error, "go mod tidy")
+}
+
+// TestRunGoVetRejected pins the resolution of the silent go-vet no-op: the gate has no
+// vet step, so `go vet` must surface a visible "unrecognized command" error rather than
+// being accepted and silently dropped (which previously masked the command entirely).
+func TestRunGoVetRejected(t *testing.T) {
+	c := cfg()
+	c.Command = []string{"go", "vet", "./..."}
+	rep := Run(t.Context(), gateRunner(), c)
+	assert.False(t, rep.OK)
+	require.Len(t, rep.Steps, 1)
+	assert.Equal(t, StatusError, rep.Steps[0].Status)
+	assert.Contains(t, rep.Steps[0].Error, "go vet")
 }

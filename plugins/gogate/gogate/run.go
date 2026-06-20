@@ -350,10 +350,15 @@ func skippedStep(name, reason string) Step {
 
 // recognizeCommand identifies a wrapped tool command and returns the step name plus the
 // args after the subcommand. ok is false if the command is not one gogate wraps.
+//
+// `go vet` is intentionally not recognized: the gate has no vet step, so accepting it
+// here would silently drop the user's command (the gate would run build/test/lint and
+// never invoke vet). Rejecting it yields a visible "unrecognized command" step instead,
+// matching other unsupported commands (e.g. `go mod tidy`).
 func recognizeCommand(cmd []string) (step string, rest []string, ok bool) {
 	if len(cmd) >= 2 && cmd[0] == "go" {
 		switch cmd[1] {
-		case "build", "test", "vet":
+		case "build", "test":
 			return cmd[1], cmd[2:], true
 		}
 	}
@@ -367,7 +372,7 @@ func recognizeCommand(cmd []string) (step string, rest []string, ok bool) {
 // testArgsFor derives the test step's args from the triggering command and reports
 // whether the command is recognized. An empty command runs the default gate. A `go test`
 // command contributes its args (flags + packages); other recognized commands (go build,
-// go vet, golangci-lint run) contribute none — the gate still runs all three steps.
+// golangci-lint run) contribute none — the gate still runs all three steps.
 func testArgsFor(cmd []string) (args []string, ok bool) {
 	if len(cmd) == 0 {
 		return nil, true
@@ -438,7 +443,7 @@ func gate(ctx context.Context, r Runner, cfg Config) ([]Step, *Coverage) {
 			Name:    "command",
 			Status:  StatusError,
 			Summary: "unrecognized command",
-			Error:   "gogate runs go build|test|vet or golangci-lint run; got: " + strings.Join(cfg.Command, " "),
+			Error:   "gogate runs go build|test or golangci-lint run; got: " + strings.Join(cfg.Command, " "),
 		}}, nil
 	}
 
