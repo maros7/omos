@@ -134,9 +134,11 @@ func Test_testArgsFor(t *testing.T) {
 	assert.True(t, ok)
 	assert.Nil(t, args)
 
-	args, ok = testArgsFor([]string{"go", "vet"})
-	assert.True(t, ok)
-	assert.Nil(t, args)
+	// go vet is NOT recognized: the gate has no vet step, so accepting it would
+	// silently drop the user's command. It returns the same false as other
+	// unsupported commands.
+	_, ok = testArgsFor([]string{"go", "vet", "./..."})
+	assert.False(t, ok)
 
 	// unrecognized
 	_, ok = testArgsFor([]string{"go", "mod", "tidy"})
@@ -346,6 +348,49 @@ func Test_runTestRerunPersistent(t *testing.T) {
 	require.Len(t, s.Diagnostics, 1)
 }
 
+// Test_runTestRerunCount pins the gotestsum --rerun-fails-max convention: the flag value
+// is the number of re-runs (the initial test run is never counted). 0 disables reruns,
+// and any N>=1 yields exactly N re-runs of a persistently failing test.
+func Test_runTestRerunCount(t *testing.T) {
+	fail := strings.Join([]string{
+		`{"Action":"run","Package":"p","Test":"TestA"}`,
+		`{"Action":"output","Package":"p","Test":"TestA","Output":"a_test.go:3: nope\n"}`,
+		`{"Action":"fail","Package":"p","Test":"TestA"}`,
+	}, "\n")
+
+	for _, tc := range []struct {
+		name       string
+		rerun      int
+		wantReruns int // re-runs after the initial run
+		wantStatus Status
+		wantFailed int
+		wantFlaky  int
+	}{
+		{"disabled", 0, 0, StatusFail, 1, 0},
+		{"one rerun", 1, 1, StatusFail, 1, 0},
+		{"three reruns", 3, 3, StatusFail, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			initials, reruns := 0, 0
+			r := fakeRunner{fn: func(_ string, args []string) Result {
+				if isRerun(args) {
+					reruns++
+					return Result{ExitCode: 1, Stdout: fail}
+				}
+				initials++
+				return Result{ExitCode: 1, Stdout: fail}
+			}}
+			s, _ := runTest(t.Context(), r, ".", nil, tc.rerun)
+
+			assert.Equal(t, 1, initials, "initial run should happen exactly once")
+			assert.Equal(t, tc.wantReruns, reruns, "re-run count must match -rerun-fails")
+			assert.Equal(t, tc.wantStatus, s.Status)
+			assert.Equal(t, tc.wantFailed, s.Tests.Failed)
+			assert.Len(t, s.Flaky, tc.wantFlaky)
+		})
+	}
+}
+
 func Test_skippedStep(t *testing.T) {
 	s := skippedStep(StepTest, "build failed")
 	assert.Equal(t, StatusSkipped, s.Status)
@@ -360,7 +405,6 @@ func Test_recognizeCommand(t *testing.T) {
 	}{
 		{[]string{"go", "build", "./..."}, StepBuild, []string{"./..."}},
 		{[]string{"go", "test", "-run", "X"}, StepTest, []string{"-run", "X"}},
-		{[]string{"go", "vet"}, StepVet, []string{}},
 		{[]string{"golangci-lint", "run", "./pkg"}, StepLint, []string{"./pkg"}},
 	} {
 		step, rest, ok := recognizeCommand(tc.cmd)
@@ -369,8 +413,12 @@ func Test_recognizeCommand(t *testing.T) {
 		assert.Equal(t, tc.rest, rest)
 	}
 
+	// `go vet` is intentionally NOT recognized: the gate has no vet step, so accepting
+	// it would silently drop the user's command. It now behaves like other unsupported
+	// commands (e.g. `go mod tidy`) and surfaces a visible "unrecognized command" step.
 	for _, cmd := range [][]string{
 		{"go", "mod", "tidy"},
+		{"go", "vet", "./..."},
 		{"go"},
 		{"golangci-lint", "version"},
 		{"ls"},
@@ -443,4 +491,17 @@ func TestRunUnrecognizedCommand(t *testing.T) {
 	require.Len(t, rep.Steps, 1)
 	assert.Equal(t, StatusError, rep.Steps[0].Status)
 	assert.Contains(t, rep.Steps[0].Error, "go mod tidy")
+}
+
+// TestRunGoVetRejected pins the resolution of the silent go-vet no-op: the gate has no
+// vet step, so `go vet` must surface a visible "unrecognized command" error rather than
+// being accepted and silently dropped (which previously masked the command entirely).
+func TestRunGoVetRejected(t *testing.T) {
+	c := cfg()
+	c.Command = []string{"go", "vet", "./..."}
+	rep := Run(t.Context(), gateRunner(), c)
+	assert.False(t, rep.OK)
+	require.Len(t, rep.Steps, 1)
+	assert.Equal(t, StatusError, rep.Steps[0].Status)
+	assert.Contains(t, rep.Steps[0].Error, "go vet")
 }

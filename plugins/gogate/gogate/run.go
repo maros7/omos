@@ -124,7 +124,9 @@ func runBuild(ctx context.Context, r Runner, dir string, extra []string) Step {
 // enabled (and the failures are isolable by name).
 func runTest(ctx context.Context, r Runner, dir string, extra []string, rerun int) (Step, *Coverage) {
 	step, cov, p := runTestOnce(ctx, r, dir, extra)
-	if rerun < 2 || step.Status != StatusFail || p.PkgFailed || len(p.Failed) == 0 || len(p.Failed) > maxRerunFailures {
+	// rerun is the number of re-runs to attempt (0 = off, N = N reruns), matching
+	// gotestsum's --rerun-fails-max convention. The initial run above is not counted.
+	if rerun < 1 || step.Status != StatusFail || p.PkgFailed || len(p.Failed) == 0 || len(p.Failed) > maxRerunFailures {
 		return step, cov
 	}
 
@@ -246,7 +248,9 @@ func rerunFailed(ctx context.Context, r Runner, dir string, extra []string, step
 	flaky := map[string]bool{}
 	lastFailures := step.Diagnostics
 
-	for attempt := 2; attempt <= attempts && len(remaining) > 0; attempt++ {
+	// The loop performs exactly `attempts` re-runs of the initial failures (or fewer
+	// if they all pass early); attempt counts the re-runs, not the initial run.
+	for attempt := 1; attempt <= attempts && len(remaining) > 0; attempt++ {
 		res := r.Run(ctx, dir, "go", rerunArgs(extra, remaining)...)
 		p := parseTestJSON(res.Stdout)
 		for _, ft := range remaining {
@@ -346,10 +350,15 @@ func skippedStep(name, reason string) Step {
 
 // recognizeCommand identifies a wrapped tool command and returns the step name plus the
 // args after the subcommand. ok is false if the command is not one gogate wraps.
+//
+// `go vet` is intentionally not recognized: the gate has no vet step, so accepting it
+// here would silently drop the user's command (the gate would run build/test/lint and
+// never invoke vet). Rejecting it yields a visible "unrecognized command" step instead,
+// matching other unsupported commands (e.g. `go mod tidy`).
 func recognizeCommand(cmd []string) (step string, rest []string, ok bool) {
 	if len(cmd) >= 2 && cmd[0] == "go" {
 		switch cmd[1] {
-		case "build", "test", "vet":
+		case "build", "test":
 			return cmd[1], cmd[2:], true
 		}
 	}
@@ -363,7 +372,7 @@ func recognizeCommand(cmd []string) (step string, rest []string, ok bool) {
 // testArgsFor derives the test step's args from the triggering command and reports
 // whether the command is recognized. An empty command runs the default gate. A `go test`
 // command contributes its args (flags + packages); other recognized commands (go build,
-// go vet, golangci-lint run) contribute none — the gate still runs all three steps.
+// golangci-lint run) contribute none — the gate still runs all three steps.
 func testArgsFor(cmd []string) (args []string, ok bool) {
 	if len(cmd) == 0 {
 		return nil, true
@@ -434,7 +443,7 @@ func gate(ctx context.Context, r Runner, cfg Config) ([]Step, *Coverage) {
 			Name:    "command",
 			Status:  StatusError,
 			Summary: "unrecognized command",
-			Error:   "gogate runs go build|test|vet or golangci-lint run; got: " + strings.Join(cfg.Command, " "),
+			Error:   "gogate runs go build|test or golangci-lint run; got: " + strings.Join(cfg.Command, " "),
 		}}, nil
 	}
 
