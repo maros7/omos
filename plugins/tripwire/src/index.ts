@@ -18,9 +18,9 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { loadConfig, type TripwireConfig, type Budget } from "./config"
 
-type Metric = "cost" | "steps" | "edits" | "tools" | "compactions" | "reads"
+export type Metric = "cost" | "steps" | "edits" | "tools" | "compactions" | "reads"
 
-type SessionState = {
+export type SessionState = {
   cost: number
   steps: number
   edits: number
@@ -36,7 +36,7 @@ type SessionState = {
   aborted: boolean
 }
 
-const newState = (): SessionState => ({
+export const newState = (): SessionState => ({
   cost: 0,
   steps: 0,
   edits: 0,
@@ -93,6 +93,39 @@ function counterLine(s: SessionState, cfg: TripwireConfig): string {
   return head + parts.join(" · ")
 }
 
+export type HardBreach = { metric: Metric; v: number; limit: number }
+export type WarnBreach = { metric: Metric; message: string }
+
+/**
+ * Returns ALL hard-limit breaches plus per-metric warn messages for a session.
+ *
+ * Multiple metrics can cross their hard tier on the same step; each is reported
+ * so callers can name every breach in the abort/block/inject message. Order
+ * follows the `metrics` array (cost, steps, edits, tools, compactions, reads).
+ */
+export function evaluate(cfg: TripwireConfig, s: SessionState): {
+  hard: HardBreach[]
+  warns: WarnBreach[]
+} {
+  const hard: HardBreach[] = []
+  const warns: WarnBreach[] = []
+  const metrics: Metric[] = ["cost", "steps", "edits", "tools", "compactions", "reads"]
+  for (const m of metrics) {
+    const b = cfg.budgets[m]
+    const v = value(s, m)
+    const t = tier(v, b)
+    if (t === "hard") hard.push({ metric: m, v, limit: b.hard! })
+    if (t === "warn") warns.push({ metric: m, message: fmt(cfg.messages.warn, m, v, b.warn!) })
+  }
+  return { hard, warns }
+}
+
+/** Render the hard-tier message, joining all breached metric names with ", ". */
+function hardMessage(cfg: TripwireConfig, hard: HardBreach[]): string {
+  const first = hard[0]
+  return fmt(cfg.messages.hard, hard.map((h) => h.metric).join(", "), first.v, first.limit)
+}
+
 export const TripwirePlugin: Plugin = async ({ client, directory }, options?: unknown) => {
   const cfg = loadConfig(directory, options)
   if (!cfg.enabled) return {}
@@ -104,32 +137,26 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
     return s
   }
 
-  /** Returns the highest active tier across all metrics + per-metric warn messages. */
-  function evaluate(s: SessionState): {
-    hard: { metric: Metric; v: number; limit: number } | null
-    warns: { metric: Metric; message: string }[]
-  } {
-    let hard: { metric: Metric; v: number; limit: number } | null = null
-    const warns: { metric: Metric; message: string }[] = []
-    const metrics: Metric[] = ["cost", "steps", "edits", "tools", "compactions", "reads"]
-    for (const m of metrics) {
-      const b = cfg.budgets[m]
-      const v = value(s, m)
-      const t = tier(v, b)
-      if (t === "hard" && !hard) hard = { metric: m, v, limit: b.hard! }
-      if (t === "warn") warns.push({ metric: m, message: fmt(cfg.messages.warn, m, v, b.warn!) })
-    }
-    return { hard, warns }
-  }
-
   return {
     // Accumulate cost/steps as each step finishes, then enforce the ceiling.
     event: async ({ event }: any) => {
-      // ponytail: property path per opencode event schema; guarded so a schema
+      // Note: property path per opencode event schema; guarded so a schema
       // drift degrades to "no cost tracking" rather than throwing.
       const type = event?.type
-      if (type !== "session.next.step.ended") return
       const p = event.properties ?? event
+
+      // Evict per-session state when the session is deleted so the `sessions`
+      // Map (and each session's `reads` Map) can't grow unbounded over the
+      // lifetime of a long-running orchestrator process. The opencode SDK
+      // emits `session.deleted` on explicit delete and end-of-life cleanup;
+      // v1 carries info.id, v2 carries both sessionID and info.
+      if (type === "session.deleted") {
+        const id = p?.sessionID ?? p?.info?.id
+        if (id) sessions.delete(id)
+        return
+      }
+
+      if (type !== "session.next.step.ended") return
       const id = p?.sessionID
       if (!id) return
       const s = get(id)
@@ -165,14 +192,14 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
           fs.mkdirSync(dirname(logPath), { recursive: true })
           fs.appendFileSync(logPath, line + "\n")
         } catch {
-          // ponytail: logging must never throw into the hook; silent-degrade by contract
+          // Note: logging must never throw into the hook; silent-degrade by contract
         }
       }
 
-      const { hard } = evaluate(s)
-      if (hard && cfg.onHard === "abort" && !s.aborted) {
+      const { hard } = evaluate(cfg, s)
+      if (hard.length > 0 && cfg.onHard === "abort" && !s.aborted) {
         s.aborted = true
-        console.warn(`[opencode-tripwire] ${fmt(cfg.messages.hard, hard.metric, hard.v, hard.limit)} — aborting session ${id}`)
+        console.warn(`[opencode-tripwire] ${hardMessage(cfg, hard)} — aborting session ${id}`)
         try {
           await client.session.abort({ path: { id } })
         } catch (e: any) {
@@ -189,9 +216,9 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
       const s = get(id)
       const tool = input.tool
       if (cfg.onHard === "block") {
-        const { hard } = evaluate(s)
-        if (hard && cfg.blockTools.includes(tool)) {
-          throw new Error(`[opencode-tripwire] ${fmt(cfg.messages.hard, hard.metric, hard.v, hard.limit)} — '${tool}' blocked.`)
+        const { hard } = evaluate(cfg, s)
+        if (hard.length > 0 && cfg.blockTools.includes(tool)) {
+          throw new Error(`[opencode-tripwire] ${hardMessage(cfg, hard)} — '${tool}' blocked.`)
         }
       }
     },
@@ -220,7 +247,7 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
       const s = get(id)
       if (cfg.counter.inject) output.system.push(counterLine(s, cfg))
       if (cfg.onWarn === "inject") {
-        const { warns } = evaluate(s)
+        const { warns } = evaluate(cfg, s)
         for (const w of warns) {
           if (s.warned.has(w.metric)) continue
           s.warned.add(w.metric)
@@ -228,8 +255,8 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
         }
       }
       if (cfg.onHard === "inject") {
-        const { hard } = evaluate(s)
-        if (hard) output.system.push(fmt(cfg.messages.hard, hard.metric, hard.v, hard.limit))
+        const { hard } = evaluate(cfg, s)
+        if (hard.length > 0) output.system.push(hardMessage(cfg, hard))
       }
     },
   }

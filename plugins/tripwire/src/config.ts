@@ -7,7 +7,7 @@
 //   user:    $XDG_CONFIG_HOME/opencode/opencode-tripwire.json[c]  (or ~/.config/opencode/…)
 //   project: <cwd>/.opencode/opencode-tripwire.json[c]
 //
-// ponytail: zero deps — manual merge + tiny JSONC stripper instead of a schema lib.
+// Note: zero deps — manual merge + tiny JSONC stripper instead of a schema lib.
 
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -84,8 +84,28 @@ export const DEFAULTS: TripwireConfig = {
   },
 }
 
+/** Advance past whitespace and line/block comments starting at `start`. Used by the trailing-comma stripper. */
+function skipTrivia(text: string, start: number): number {
+  let j = start
+  while (j < text.length) {
+    if (text[j] === "/" && text[j + 1] === "/") {
+      j += 2
+      while (j < text.length && text[j] !== "\n") j++
+    } else if (text[j] === "/" && text[j + 1] === "*") {
+      j += 2
+      while (j < text.length && !(text[j] === "*" && text[j + 1] === "/")) j++
+      j += 2 // skip the closing */
+    } else if (/\s/.test(text[j])) {
+      j++
+    } else {
+      break
+    }
+  }
+  return j
+}
+
 /** Strip // and /* *​/ comments and trailing commas so JSONC parses as JSON. */
-function parseJsonc(text: string): unknown {
+export function parseJsonc(text: string): unknown {
   let out = ""
   let inStr = false
   let inLine = false
@@ -111,8 +131,9 @@ function parseJsonc(text: string): unknown {
     if (c === "/" && n === "/") { inLine = true; i++; continue }
     if (c === "/" && n === "*") { inBlock = true; i++; continue }
     if (c === ",") {
-      let j = i + 1
-      while (j < text.length && /\s/.test(text[j])) j++
+      // Drop the comma if only trivia (whitespace + comments) separates it
+      // from the enclosing `}` or `]`.
+      const j = skipTrivia(text, i + 1)
       if (text[j] === "}" || text[j] === "]") continue // drop trailing comma
     }
     out += c
@@ -132,8 +153,18 @@ function readConfigFile(path: string): Partial<TripwireConfig> | null {
   return null
 }
 
-/** Deep-merge that only overrides keys present in `over` (objects merged, scalars/arrays replaced). */
-function merge<T>(base: T, over: any): T {
+/**
+ * Deep-merge that only overrides keys present in `over` (objects merged, scalars/arrays replaced).
+ *
+ * Note: explicit `null` is treated as "keep base" — there is NO delete sentinel.
+ * `merge(base, null)` early-returns `base` (see the `over == null` guard below),
+ * so a user cannot null-out a nested config block by passing `{ budgets: null }`,
+ * `{ messages: null }`, etc. This is intentional: config blocks carry required
+ * keys with sensible defaults, and a partial override must not be able to wipe
+ * a whole required subtree. To disable a metric's budget, omit it or set its
+ * tiers to 0/undefined — do not rely on `null` to clear it.
+ */
+export function merge<T>(base: T, over: any): T {
   if (over == null) return base
   if (Array.isArray(over) || typeof over !== "object") return over as T
   const out: any = { ...base }
