@@ -92,6 +92,39 @@ Set any tier to `0` to disable just that tier.
 | `OPENCODE_TRIPWIRE_COMPACTIONS_HARD=3` | set compactions hard ceiling |
 | `OPENCODE_TRIPWIRE_READS_HARD=4` | set per-file reads hard ceiling |
 | `OPENCODE_TRIPWIRE_ON_HARD=block` | override the hard action |
+| `OPENCODE_TRIPWIRE_LOG=1` | enable JSONL session-summary logging |
+| `OPENCODE_TRIPWIRE_LOG_PATH=/path/sessions.jsonl` | override the log file path |
+| `OPENCODE_TRIPWIRE_LOG_EVERY=5` | write a log line every N steps |
+
+## Session logging
+
+Opt-in. Set `log.enabled` (or `OPENCODE_TRIPWIRE_LOG=1`) to append per-session
+usage to a JSONL file (default
+`~/.config/opencode/opencode-tripwire.sessions.jsonl`):
+
+```jsonc
+"log": {
+  "enabled": false,
+  "path": "~/.config/opencode/opencode-tripwire.sessions.jsonl",
+  "every": 1   // write one line every N steps
+}
+```
+
+Each line carries cumulative fields:
+`{ ts, sessionID, directory, steps, cost, tokensIn, tokensOut, cacheRead, cacheWrite, edits, tools, compactions }`.
+`cacheRead`/`cacheWrite` make the dominant context-cost levers measurable.
+
+> **Each line is CUMULATIVE** — for per-session totals take the **LAST** line per
+> `sessionID`. e.g. with `jq`:
+> ```sh
+> jq -s 'group_by(.sessionID) | map(last)' opencode-tripwire.sessions.jsonl
+> ```
+> or with `awk` (keep last seen per session):
+> ```sh
+> awk '{ m[$0]=0 } END {}' # group by sessionID, keep last line
+> ```
+
+Logging failures never interrupt tracking (they degrade silently).
 
 ## How it works
 

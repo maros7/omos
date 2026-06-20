@@ -55,4 +55,14 @@
     "warn": "TRIPWIRE WARN: {metric} at {value} (warn {limit}). Wrap up the current step, checkpoint, and consider splitting or delegating before continuing.",
     "hard": "TRIPWIRE HARD: {metric} hit {value} (limit {limit}). Stop now — split the session or delegate the remaining work.",
   },
+
+  // Opt-in JSONL session-summary logging. Appends one line per session every
+  // `every` steps with cumulative cost/steps/tokens (incl. cacheRead/cacheWrite).
+  // NOTE: each line is CUMULATIVE — for per-session totals take the LAST line
+  // per sessionID (see README). Off by default.
+  "log": {
+    "enabled": false,
+    "path": "~/.config/opencode/opencode-tripwire.sessions.jsonl",
+    "every": 1,                // write a line every N steps
+  },
 }

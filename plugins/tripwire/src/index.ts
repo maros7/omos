@@ -13,6 +13,8 @@
 // the NEXT step; it cannot pre-empt an in-flight one. Adequate for runaway control.
 
 import type { Plugin } from "@opencode-ai/plugin"
+import * as fs from "node:fs"
+import { dirname } from "node:path"
 import { loadConfig, type TripwireConfig, type Budget } from "./config"
 
 type Metric = "cost" | "steps" | "edits" | "tools" | "compactions" | "reads"
@@ -23,6 +25,10 @@ type SessionState = {
   edits: number
   tools: number
   compactions: number
+  tokensIn: number
+  tokensOut: number
+  cacheRead: number
+  cacheWrite: number
   reads: Map<string, number> // path -> count
   maxReads: number
   warned: Set<Metric>
@@ -35,6 +41,10 @@ const newState = (): SessionState => ({
   edits: 0,
   tools: 0,
   compactions: 0,
+  tokensIn: 0,
+  tokensOut: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
   reads: new Map(),
   maxReads: 0,
   warned: new Set(),
@@ -124,6 +134,36 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
       const s = get(id)
       s.steps++
       if (typeof p.cost === "number") s.cost += p.cost
+      s.tokensIn += p.tokens?.input ?? 0
+      s.tokensOut += p.tokens?.output ?? 0
+      s.cacheRead += p.tokens?.cache?.read ?? 0
+      s.cacheWrite += p.tokens?.cache?.write ?? 0
+
+      // Optional JSONL session-summary logging (cumulative; one line per N steps).
+      if (cfg.log.enabled && s.steps % Math.max(1, cfg.log.every) === 0) {
+        try {
+          const line = JSON.stringify({
+            ts: new Date().toISOString(),
+            sessionID: id,
+            directory,
+            steps: s.steps,
+            cost: s.cost,
+            tokensIn: s.tokensIn,
+            tokensOut: s.tokensOut,
+            cacheRead: s.cacheRead,
+            cacheWrite: s.cacheWrite,
+            edits: s.edits,
+            tools: s.tools,
+            compactions: s.compactions,
+          })
+          fs.mkdirSync(dirname(cfg.log.path), { recursive: true })
+          fs.appendFileSync(cfg.log.path, line + "\n")
+        } catch (e: any) {
+          // ponytail: logging must never throw into the hook — silently degrade.
+          console.warn(`[opencode-tripwire] session log append failed: ${e?.message}`)
+        }
+      }
+
       const { hard } = evaluate(s)
       if (hard && cfg.onHard === "abort" && !s.aborted) {
         s.aborted = true
