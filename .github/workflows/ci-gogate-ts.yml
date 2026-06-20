@@ -5,10 +5,10 @@ on:
     branches: [main]
     paths:
       - "plugins/gogate/**"
+  # No path filter on pull_request: this check is REQUIRED by branch protection,
+  # so it must always report a status on every PR. Push is still path-scoped.
   pull_request:
     branches: [main]
-    paths:
-      - "plugins/gogate/**"
 
 # Deny-by-default at the top level. This uses `pull_request` (NOT
 # `pull_request_target`), so PRs from forks run with a read-only GITHUB_TOKEN

@@ -34,20 +34,11 @@ updates:
           - "minor"
           - "patch"
 
-  # Keep gogate's npm distribution packages current.
-  - package-ecosystem: "bun"
-    directory: "/plugins/gogate/npm"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: "chore(deps)"
-      prefix-development: "chore(deps-dev)"
-    groups:
-      npm-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
+  # NOTE: plugins/gogate/npm is deliberately NOT tracked. Its only dependencies
+  # are the @gogate/<os>-<arch> platform binaries, which are release-managed by
+  # npm/scripts/publish.mjs (version-locked to the launcher) and are not
+  # independently resolvable on the registry — Dependabot 404s on them and the
+  # job fails. There is nothing there for Dependabot to usefully update.
 
   # Keep GitHub Actions current. Because the workflows pin actions to full
   # commit SHAs, Dependabot bumps the SHA and updates the trailing # vX.Y.Z

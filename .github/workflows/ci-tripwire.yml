@@ -5,10 +5,10 @@ on:
     branches: [main]
     paths:
       - "plugins/tripwire/**"
+  # No path filter on pull_request: this check is REQUIRED by branch protection,
+  # so it must always report a status on every PR. Push is still path-scoped.
   pull_request:
     branches: [main]
-    paths:
-      - "plugins/tripwire/**"
 
 # Deny-by-default at the top level. Dependabot-authored PRs already run with a
 # read-only GITHUB_TOKEN and no access to repo secrets because this uses

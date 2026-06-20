@@ -1,6 +1,6 @@
 {
   "name": "opencode-tripwire",
-  "version": "0.1.1",
+  "version": "0.0.0",
   "description": "Enforceable per-session cost/step budgets for OpenCode — counts steps/cost/edits/reads/compactions, injects a live budget line into the orchestrator's turn, and warns or hard-aborts at configurable ceilings.",
   "type": "module",
   "main": "src/index.ts",
