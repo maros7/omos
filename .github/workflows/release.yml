@@ -54,8 +54,8 @@ jobs:
           go-version-file: go.mod
           check-latest: false
 
-      # GoReleaser runs from the repo root against root .goreleaser.yaml
-      # (whose build main is ./plugins/gogate/cmd/gogate).
+      # GoReleaser runs from the repo root against root .goreleaser.yaml, which
+      # builds every binary in the repo (gogate + review-fixer).
       - name: GoReleaser
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
@@ -78,3 +78,4 @@ jobs:
       # deterministic environment; 11.17.0 satisfies the minimum.
       - name: Update npm
         run: npm install -g npm@11.17.0
+

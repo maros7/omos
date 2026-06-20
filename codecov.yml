@@ -18,10 +18,16 @@ flags:
     paths:
       - plugins/gogate/cmd/
       - plugins/gogate/gogate/
+      - plugins/review-fixer/cmd/
+      - plugins/review-fixer/reviewfixer/
     carryforward: true
   gogate-ts:
     paths:
       - plugins/gogate/src/
+    carryforward: true
+  review-fixer-ts:
+    paths:
+      - plugins/review-fixer/src/
     carryforward: true
 
 comment:

@@ -1,5 +1,5 @@
 version: 2
-project_name: gogate
+project_name: omos
 
 before:
   hooks:
@@ -15,14 +15,31 @@ builds:
     goarch: [amd64, arm64]
     ldflags:
       - -s -w
+  - id: review-fixer
+    main: ./plugins/review-fixer/cmd/review-fixer
+    binary: review-fixer
+    env:
+      - CGO_ENABLED=0 # static binaries, no libc dependency
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
 
 archives:
   - id: gogate
+    ids: [gogate] # ship only the gogate binary in this archive
     formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
     name_template: "gogate_{{ .Os }}_{{ .Arch }}"
+  - id: review-fixer
+    ids: [review-fixer] # ship only the review-fixer binary in this archive
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "review-fixer_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: checksums.txt
