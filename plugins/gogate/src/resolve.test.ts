@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, dirname } from "node:path"
 import { resolveBinary, defaultDeps, type ResolveDeps } from "./resolve"
 
 // A fake HTTP response for the injected fetch.
@@ -24,15 +24,19 @@ function makeResponse(opts: {
 const ARCHIVE_URL = "https://dl.example/archive"
 const CHECKSUMS_URL = "https://dl.example/checksums"
 
-// makeDeps builds a fully-faked ResolveDeps; pass overrides per test.
+// makeDeps builds a fully-faked ResolveDeps; pass overrides per test. `calls` is a
+// unified, ordered log of side effects so tests can assert e.g. the marker is written
+// last (after extract + chmod).
 function makeDeps(overrides: Partial<ResolveDeps> = {}): ResolveDeps & {
   writes: Array<{ p: string; data: Uint8Array }>
   chmods: Array<{ p: string; mode: number }>
   extracts: Array<{ archivePath: string; destDir: string; isZip: boolean }>
+  calls: string[]
 } {
   const writes: Array<{ p: string; data: Uint8Array }> = []
   const chmods: Array<{ p: string; mode: number }> = []
   const extracts: Array<{ archivePath: string; destDir: string; isZip: boolean }> = []
+  const calls: string[] = []
   const base: ResolveDeps = {
     env: {},
     platform: "linux",
@@ -40,16 +44,23 @@ function makeDeps(overrides: Partial<ResolveDeps> = {}): ResolveDeps & {
     homedir: () => "/home/u",
     exists: () => false,
     mkdirp: () => {},
-    writeFile: (p, data) => writes.push({ p, data }),
-    chmod: (p, mode) => chmods.push({ p, mode }),
+    writeFile: (p, data) => {
+      calls.push(`write:${p}`)
+      writes.push({ p, data })
+    },
+    chmod: (p, mode) => {
+      calls.push(`chmod:${p}`)
+      chmods.push({ p, mode })
+    },
     fetch: (async () => makeResponse({ json: {} })) as unknown as typeof fetch,
     sha256: () => "deadbeef",
     extract: async (archivePath, destDir, isZip) => {
+      calls.push(`extract:${destDir}`)
       extracts.push({ archivePath, destDir, isZip })
     },
     ...overrides,
   }
-  return Object.assign(base, { writes, chmods, extracts })
+  return Object.assign(base, { writes, chmods, extracts, calls })
 }
 
 // A fetch router for the cold-install happy path: release JSON, then the archive
@@ -95,12 +106,13 @@ describe("resolveBinary — resolution order", () => {
     expect(await resolveBinary("/proj", deps)).toEqual([join("/proj", "bin", "gogate.exe")])
   })
 
-  test("3. cache hit returns cached binary without network (XDG_CACHE_HOME)", async () => {
+  test("3. cache hit (binary AND .ok marker present) returns cached binary, no network", async () => {
     const cached = join("/xdg", "gogate", "bin", "gogate")
+    const marker = `${cached}.ok`
     let fetched = false
     const deps = makeDeps({
       env: { XDG_CACHE_HOME: "/xdg" },
-      exists: (p) => p === cached,
+      exists: (p) => p === cached || p === marker,
       fetch: (async () => {
         fetched = true
         return makeResponse({ json: {} })
@@ -108,6 +120,26 @@ describe("resolveBinary — resolution order", () => {
     })
     expect(await resolveBinary("/proj", deps)).toEqual([cached])
     expect(fetched).toBe(false)
+  })
+
+  test("3b. BUG A: binary present but .ok marker ABSENT triggers a fresh install", async () => {
+    const cachedBin = join("/home/u", ".cache", "gogate", "bin", "gogate")
+    const marker = `${cachedBin}.ok`
+    const assetName = "gogate_linux_amd64.tar.gz"
+    let fetched = false
+    const router = installFetch({ assetName, digest: "deadbeef" })
+    const deps = makeDeps({
+      // Binary exists, marker does NOT — a partial/corrupt cache, not a valid hit.
+      exists: (p) => p === cachedBin,
+      fetch: (async (url: string) => {
+        fetched = true
+        return router(url as unknown as URL)
+      }) as unknown as typeof fetch,
+    })
+    expect(await resolveBinary("/proj", deps)).toEqual([cachedBin])
+    // The install path ran (network hit) and the marker is now written.
+    expect(fetched).toBe(true)
+    expect(deps.writes.some((w) => w.p === marker)).toBe(true)
   })
 })
 
@@ -120,20 +152,26 @@ describe("resolveBinary — cold install", () => {
       fetch: installFetch({ assetName, digest: "abcdef" }),
     })
     const cachedBin = join("/home/u", ".cache", "gogate", "bin", "gogate")
+    const archivePath = join("/home/u", ".cache", "gogate", "bin", assetName)
+    const marker = `${cachedBin}.ok`
     expect(await resolveBinary("/proj", deps)).toEqual([cachedBin])
 
-    // wrote the archive, extracted it (not zip), chmod'd the binary 0755.
-    expect(deps.writes.map((w) => w.p)).toEqual([
-      join("/home/u", ".cache", "gogate", "bin", assetName),
-    ])
+    // wrote the archive AND the .ok marker; extracted (not zip); chmod'd the binary 0755.
+    expect(deps.writes.map((w) => w.p)).toEqual([archivePath, marker])
     expect(deps.extracts).toEqual([
       {
-        archivePath: join("/home/u", ".cache", "gogate", "bin", assetName),
+        archivePath,
         destDir: join("/home/u", ".cache", "gogate", "bin"),
         isZip: false,
       },
     ])
     expect(deps.chmods).toEqual([{ p: cachedBin, mode: 0o755 }])
+
+    // The marker is the LAST side effect — written only after extract + chmod succeed.
+    const markerIdx = deps.calls.indexOf(`write:${marker}`)
+    expect(markerIdx).toBeGreaterThan(deps.calls.indexOf(`extract:${dirname(cachedBin)}`))
+    expect(markerIdx).toBeGreaterThan(deps.calls.indexOf(`chmod:${cachedBin}`))
+    expect(markerIdx).toBe(deps.calls.length - 1)
   })
 
   test("win32 maps to windows/.zip and arm64 mapping is honored", async () => {
@@ -189,6 +227,61 @@ describe("resolveBinary — cold install", () => {
     })
     await resolveBinary("/proj", deps)
     expect(deps.chmods.length).toBe(1)
+  })
+})
+
+describe("resolveBinary — BUG B: GOGATE_VERSION genuinely pins the cache", () => {
+  test("(a) set version ignores the pre-existing UNVERSIONED cache and downloads the tag", async () => {
+    const version = "v2.0.0"
+    const assetName = "gogate_linux_amd64.tar.gz"
+    const unversioned = join("/home/u", ".cache", "gogate", "bin", "gogate")
+    const versionedBin = join("/home/u", ".cache", "gogate", "bin", version, "gogate")
+    const versionedMarker = `${versionedBin}.ok`
+    let fetched = false
+    const router = installFetch({ assetName, digest: "deadbeef", tagName: version })
+    const deps = makeDeps({
+      env: { GOGATE_VERSION: version },
+      // The UNVERSIONED binary + marker exist, but a pinned version must not use them.
+      exists: (p) => p === unversioned || p === `${unversioned}.ok`,
+      fetch: (async (url: string) => {
+        fetched = true
+        return router(url as unknown as URL)
+      }) as unknown as typeof fetch,
+    })
+    expect(await resolveBinary("/proj", deps)).toEqual([versionedBin])
+    expect(fetched).toBe(true)
+    expect(deps.writes.some((w) => w.p === versionedMarker)).toBe(true)
+  })
+
+  test("(b) set version WITH a matching versioned cache (+marker) is a no-network cache hit", async () => {
+    const version = "v2.0.0"
+    const versionedBin = join("/home/u", ".cache", "gogate", "bin", version, "gogate")
+    const versionedMarker = `${versionedBin}.ok`
+    let fetched = false
+    const deps = makeDeps({
+      env: { GOGATE_VERSION: version },
+      exists: (p) => p === versionedBin || p === versionedMarker,
+      fetch: (async () => {
+        fetched = true
+        return makeResponse({ json: {} })
+      }) as unknown as typeof fetch,
+    })
+    expect(await resolveBinary("/proj", deps)).toEqual([versionedBin])
+    expect(fetched).toBe(false)
+  })
+
+  test("(c) version strings with unsafe chars are sanitized into the cache path", async () => {
+    const version = "feature/foo bar"
+    const sanitized = "feature-foo-bar"
+    const assetName = "gogate_linux_amd64.tar.gz"
+    const versionedBin = join("/home/u", ".cache", "gogate", "bin", sanitized, "gogate")
+    const deps = makeDeps({
+      env: { GOGATE_VERSION: version },
+      fetch: installFetch({ assetName, digest: "deadbeef", tagName: version }),
+    })
+    // Cold install lands at the SANITIZED path, not one containing "/" or " ".
+    expect(await resolveBinary("/proj", deps)).toEqual([versionedBin])
+    expect(deps.writes.some((w) => w.p === `${versionedBin}.ok`)).toBe(true)
   })
 })
 

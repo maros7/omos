@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs"
 import { homedir } from "node:os"
 import { createHash } from "node:crypto"
-import { join } from "node:path"
+import { join, dirname } from "node:path"
 
 const REPO = "maros7/omos"
 
@@ -71,12 +71,40 @@ function cacheDir(deps: ResolveDeps): string {
   return join(root, "gogate")
 }
 
+// sanitizeVersion makes a tag string safe to use as a path component (any char outside
+// [A-Za-z0-9._-] becomes '-'), so a pinned GOGATE_VERSION can key the cache directory.
+function sanitizeVersion(version: string): string {
+  return version.replace(/[^A-Za-z0-9._-]/g, "-")
+}
+
+// cachedBinPath is the on-disk path of the cached binary.
+//   - default (latest): <cache>/bin/gogate(.exe) — a stable, version-agnostic path so
+//     the common case keeps its no-network cache hit across runs.
+//   - pinned (GOGATE_VERSION set): <cache>/bin/<sanitizedVersion>/gogate(.exe) — keyed by
+//     the tag in its own subdir, so changing/setting the pin yields a DISTINCT path that
+//     forces a download of the requested tag (and never clobbers the "latest" binary,
+//     since the archive always extracts a file literally named gogate(.exe)).
+function cachedBinPath(deps: ResolveDeps): string {
+  const exe = binaryName(deps.platform)
+  const binDir = join(cacheDir(deps), "bin")
+  const pinned = deps.env.GOGATE_VERSION
+  if (pinned) return join(binDir, sanitizeVersion(pinned), exe)
+  return join(binDir, exe)
+}
+
+// markerPath is the success marker written next to a cached binary. Its presence (in
+// addition to the binary itself) is what makes a cache entry trustworthy: a partial or
+// crashed install leaves the binary without its marker and is treated as not cached.
+function markerPath(cachedBin: string): string {
+  return `${cachedBin}.ok`
+}
+
 // resolveBinary returns the argv prefix used to invoke the binary, installing it from
 // the GitHub Release on first use if necessary. Resolution order (first hit wins):
-//   1. $GOGATE_BIN          explicit override
-//   2. <dir>/bin/gogate     local dev build
-//   3. <cache>/bin/gogate   previously installed (no network)
-//   4. download + verify + cache the latest (or $GOGATE_VERSION) release
+//   1. $GOGATE_BIN              explicit override
+//   2. <dir>/bin/gogate         local dev build
+//   3. version-aware cache hit  binary AND its `.ok` marker both present (no network)
+//   4. download + verify + extract + chmod + write marker, then install the result
 export async function resolveBinary(
   dir: string,
   deps: ResolveDeps = defaultDeps(),
@@ -91,19 +119,22 @@ export async function resolveBinary(
   const local = join(dir, "bin", exe)
   if (deps.exists(local)) return [local]
 
-  // 3. Cached install.
-  const cachedBin = join(cacheDir(deps), "bin", exe)
-  if (deps.exists(cachedBin)) return [cachedBin]
+  // 3. Cached install — require BOTH the binary AND its success marker. A binary with no
+  // marker is a partial/corrupt install and must be re-installed rather than trusted.
+  const cachedBin = cachedBinPath(deps)
+  const marker = markerPath(cachedBin)
+  if (deps.exists(cachedBin) && deps.exists(marker)) return [cachedBin]
 
   // 4. Cold install from the GitHub Release.
-  await installRelease(deps, cachedBin)
+  await installRelease(deps, cachedBin, marker)
   return [cachedBin]
 }
 
-// installRelease downloads, checksum-verifies, and extracts the matching binary into
-// <cache>/bin. It throws a clear Error on any failure and never leaves a partial binary
-// at the final path silently (extraction failures surface).
-async function installRelease(deps: ResolveDeps, destBin: string): Promise<void> {
+// installRelease downloads, checksum-verifies, and extracts the matching binary into the
+// directory containing destBin, then chmods it and writes the success marker LAST. It
+// throws a clear Error on any failure; because the marker is only written after every
+// step succeeds, a crashed install never leaves a marked (and thus trusted) binary.
+async function installRelease(deps: ResolveDeps, destBin: string, marker: string): Promise<void> {
   const release = await fetchRelease(deps)
 
   const goos = deps.platform === "win32" ? "windows" : deps.platform
@@ -131,13 +162,19 @@ async function installRelease(deps: ResolveDeps, destBin: string): Promise<void>
     throw new Error(`checksum mismatch for ${assetName}: expected ${expected}, got ${actual}`)
   }
 
-  // Write the archive to the cache bin dir, then extract the single binary next to it.
-  const destDir = join(cacheDir(deps), "bin")
+  // Write the archive next to where the binary will live, then extract it there. The
+  // archive always contains a file literally named gogate(.exe), so extracting into
+  // dirname(destBin) lands the binary exactly at destBin.
+  const destDir = dirname(destBin)
   deps.mkdirp(destDir)
   const archivePath = join(destDir, assetName)
   deps.writeFile(archivePath, archiveBytes)
   await deps.extract(archivePath, destDir, ext === ".zip")
   deps.chmod(destBin, 0o755)
+
+  // Marker LAST: only now — checksum verified, extracted, chmod'd — is this a valid cache
+  // entry. The content is the resolved tag, for debuggability.
+  deps.writeFile(marker, new TextEncoder().encode(release.tag))
 }
 
 interface Release {

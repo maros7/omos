@@ -192,19 +192,25 @@ distribution path.
 
 On first use the plugin downloads the binary matching your OS/arch from the **latest**
 GitHub Release, verifies it against `checksums.txt` (SHA-256), and caches it under
-`$XDG_CACHE_HOME/gogate` (or `~/.cache/gogate`). After that it runs entirely from the
-cache — no per-call network.
+`$XDG_CACHE_HOME/gogate` (or `~/.cache/gogate`). A cache entry is only trusted once a
+`.ok` success marker is written next to the binary — written **last**, after the checksum,
+extraction, and `chmod` all succeed — so an interrupted install is never reused. After a
+successful install it runs entirely from the cache — no per-call network.
 
 `resolveBinary` picks the binary in this order (first hit wins):
 
 1. **`GOGATE_BIN`** — explicit path to a binary (overrides everything).
 2. **`<plugin>/bin/gogate`** — a local dev build, when present.
-3. **`<cache>/bin/gogate`** — a previously downloaded binary (no network).
-4. **download + verify + cache** the release binary.
+3. **version-aware cache hit** — the cached binary **and** its `.ok` marker are both
+   present (no network).
+4. **download + verify + extract + chmod + write marker** the release binary.
 
-Set **`GOGATE_VERSION`** to pin a specific release tag (e.g. `v1.2.3`); otherwise the
-latest release is used and cached forever. If `GITHUB_TOKEN` is set it is sent as a bearer
-token on the GitHub API call (useful to avoid rate limits).
+Set **`GOGATE_VERSION`** to pin a specific release tag (e.g. `v1.2.3`). A pinned version
+is cached under its own tag-keyed path (`<cache>/bin/<version>/gogate`), so setting or
+changing the pin forces a download of exactly that tag instead of reusing the unpinned
+"latest" binary. Unpinned, the latest release is cached at `<cache>/bin/gogate`. If
+`GITHUB_TOKEN` is set it is sent as a bearer token on the GitHub API call (useful to avoid
+rate limits).
 
 ## Requirements
 
