@@ -74,6 +74,7 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org" # required for npm Trusted Publishing (OIDC)
 
-      # OIDC Trusted Publishing requires npm >= 11.5.1.
+      # OIDC Trusted Publishing requires npm >= 11.5.1. Pinned (not @latest) for a
+      # deterministic environment; 11.17.0 satisfies the minimum.
       - name: Update npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.17.0
