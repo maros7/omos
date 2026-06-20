@@ -29,6 +29,9 @@ archives:
   - id: gogate
     ids: [gogate] # ship only the gogate binary in this archive
     formats: [tar.gz]
+    # Keep the binary at the archive root; the plugin installer extracts straight
+    # into <cache>/bin and expects the binary there (no wrapping subdirectory).
+    wrap_in_directory: false
     format_overrides:
       - goos: windows
         formats: [zip]
@@ -36,6 +39,9 @@ archives:
   - id: review-fixer
     ids: [review-fixer] # ship only the review-fixer binary in this archive
     formats: [tar.gz]
+    # Keep the binary at the archive root; the plugin installer extracts straight
+    # into <cache>/bin and expects the binary there (no wrapping subdirectory).
+    wrap_in_directory: false
     format_overrides:
       - goos: windows
         formats: [zip]

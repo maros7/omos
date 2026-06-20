@@ -48,7 +48,7 @@ export function defaultDeps(): ResolveDeps {
       const args = isZip
         ? ["tar", "-xf", archivePath, "-C", destDir]
         : ["tar", "-xzf", archivePath, "-C", destDir]
-      const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
+      const proc = Bun.spawn(args, { stdout: "ignore", stderr: "pipe" })
       const stderr = await new Response(proc.stderr).text()
       const code = await proc.exited
       if (code !== 0) throw new Error(`extract failed (exit ${code}): ${stderr.trim()}`)
