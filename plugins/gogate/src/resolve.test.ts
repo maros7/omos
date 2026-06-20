@@ -31,11 +31,13 @@ function makeDeps(overrides: Partial<ResolveDeps> = {}): ResolveDeps & {
   writes: Array<{ p: string; data: Uint8Array }>
   chmods: Array<{ p: string; mode: number }>
   extracts: Array<{ archivePath: string; destDir: string; isZip: boolean }>
+  removes: string[]
   calls: string[]
 } {
   const writes: Array<{ p: string; data: Uint8Array }> = []
   const chmods: Array<{ p: string; mode: number }> = []
   const extracts: Array<{ archivePath: string; destDir: string; isZip: boolean }> = []
+  const removes: string[] = []
   const calls: string[] = []
   const base: ResolveDeps = {
     env: {},
@@ -52,6 +54,10 @@ function makeDeps(overrides: Partial<ResolveDeps> = {}): ResolveDeps & {
       calls.push(`chmod:${p}`)
       chmods.push({ p, mode })
     },
+    removeFile: (p) => {
+      calls.push(`removeFile:${p}`)
+      removes.push(p)
+    },
     fetch: (async () => makeResponse({ json: {} })) as unknown as typeof fetch,
     sha256: () => "deadbeef",
     extract: async (archivePath, destDir, isZip) => {
@@ -60,7 +66,7 @@ function makeDeps(overrides: Partial<ResolveDeps> = {}): ResolveDeps & {
     },
     ...overrides,
   }
-  return Object.assign(base, { writes, chmods, extracts, calls })
+  return Object.assign(base, { writes, chmods, extracts, removes, calls })
 }
 
 // A fetch router for the cold-install happy path: release JSON, then the archive
@@ -172,6 +178,28 @@ describe("resolveBinary — cold install", () => {
     expect(markerIdx).toBeGreaterThan(deps.calls.indexOf(`extract:${dirname(cachedBin)}`))
     expect(markerIdx).toBeGreaterThan(deps.calls.indexOf(`chmod:${cachedBin}`))
     expect(markerIdx).toBe(deps.calls.length - 1)
+  })
+
+  test("happy path removes the downloaded archive after a successful install", async () => {
+    const assetName = "gogate_linux_amd64.tar.gz"
+    const deps = makeDeps({
+      env: {},
+      fetch: installFetch({ assetName, digest: "deadbeef" }),
+    })
+    const cachedBin = join("/home/u", ".cache", "gogate", "bin", "gogate")
+    const archivePath = join("/home/u", ".cache", "gogate", "bin", assetName)
+    const marker = `${cachedBin}.ok`
+    expect(await resolveBinary("/proj", deps)).toEqual([cachedBin])
+
+    // The archive was written during install ...
+    expect(deps.writes.some((w) => w.p === archivePath)).toBe(true)
+    // ... and then removed once the binary was extracted + chmod'd, so no .tar.gz is
+    // left accumulating in the cache across installs and pinned versions.
+    expect(deps.removes).toContain(archivePath)
+    // The removal happened BEFORE the .ok marker write (marker stays the last side effect).
+    const removeIdx = deps.calls.indexOf(`removeFile:${archivePath}`)
+    expect(removeIdx).toBeGreaterThan(-1)
+    expect(deps.calls.indexOf(`write:${marker}`)).toBeGreaterThan(removeIdx)
   })
 
   test("win32 maps to windows/.zip and arm64 mapping is honored", async () => {

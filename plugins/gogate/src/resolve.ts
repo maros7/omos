@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync, chmodSync, unlinkSync } from "node:fs"
 import { homedir } from "node:os"
 import { createHash } from "node:crypto"
 import { join, dirname } from "node:path"
@@ -17,6 +17,7 @@ export interface ResolveDeps {
   mkdirp(p: string): void
   writeFile(p: string, data: Uint8Array): void
   chmod(p: string, mode: number): void
+  removeFile(p: string): void
   fetch: typeof fetch
   sha256(data: Uint8Array): string
   extract(archivePath: string, destDir: string, isZip: boolean): Promise<void>
@@ -38,6 +39,9 @@ export function defaultDeps(): ResolveDeps {
     },
     chmod: (p, mode) => {
       chmodSync(p, mode)
+    },
+    removeFile: (p) => {
+      unlinkSync(p)
     },
     fetch: globalThis.fetch,
     sha256: (data) => createHash("sha256").update(data).digest("hex"),
@@ -171,6 +175,18 @@ async function installRelease(deps: ResolveDeps, destBin: string, marker: string
   deps.writeFile(archivePath, archiveBytes)
   await deps.extract(archivePath, destDir, ext === ".zip")
   deps.chmod(destBin, 0o755)
+
+  // Archive cleanup: the extracted binary is now installed and verified, so the
+  // downloaded archive is no longer needed — remove it so the cache doesn't accumulate
+  // .tar.gz/.zip files across installs and pinned versions. Best-effort: a failed unlink
+  // must not invalidate an otherwise-successful install (the archive would just be
+  // overwritten on the next cold install anyway). Deliberately on the SUCCESS path only —
+  // a failed install throws before reaching here, leaving the archive behind for debugging.
+  try {
+    deps.removeFile(archivePath)
+  } catch {
+    // ignore — best-effort cleanup
+  }
 
   // Marker LAST: only now — checksum verified, extracted, chmod'd — is this a valid cache
   // entry. The content is the resolved tag, for debuggability.
