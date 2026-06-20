@@ -346,6 +346,49 @@ func Test_runTestRerunPersistent(t *testing.T) {
 	require.Len(t, s.Diagnostics, 1)
 }
 
+// Test_runTestRerunCount pins the gotestsum --rerun-fails-max convention: the flag value
+// is the number of re-runs (the initial test run is never counted). 0 disables reruns,
+// and any N>=1 yields exactly N re-runs of a persistently failing test.
+func Test_runTestRerunCount(t *testing.T) {
+	fail := strings.Join([]string{
+		`{"Action":"run","Package":"p","Test":"TestA"}`,
+		`{"Action":"output","Package":"p","Test":"TestA","Output":"a_test.go:3: nope\n"}`,
+		`{"Action":"fail","Package":"p","Test":"TestA"}`,
+	}, "\n")
+
+	for _, tc := range []struct {
+		name       string
+		rerun      int
+		wantReruns int // re-runs after the initial run
+		wantStatus Status
+		wantFailed int
+		wantFlaky  int
+	}{
+		{"disabled", 0, 0, StatusFail, 1, 0},
+		{"one rerun", 1, 1, StatusFail, 1, 0},
+		{"three reruns", 3, 3, StatusFail, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			initials, reruns := 0, 0
+			r := fakeRunner{fn: func(_ string, args []string) Result {
+				if isRerun(args) {
+					reruns++
+					return Result{ExitCode: 1, Stdout: fail}
+				}
+				initials++
+				return Result{ExitCode: 1, Stdout: fail}
+			}}
+			s, _ := runTest(t.Context(), r, ".", nil, tc.rerun)
+
+			assert.Equal(t, 1, initials, "initial run should happen exactly once")
+			assert.Equal(t, tc.wantReruns, reruns, "re-run count must match -rerun-fails")
+			assert.Equal(t, tc.wantStatus, s.Status)
+			assert.Equal(t, tc.wantFailed, s.Tests.Failed)
+			assert.Len(t, s.Flaky, tc.wantFlaky)
+		})
+	}
+}
+
 func Test_skippedStep(t *testing.T) {
 	s := skippedStep(StepTest, "build failed")
 	assert.Equal(t, StatusSkipped, s.Status)

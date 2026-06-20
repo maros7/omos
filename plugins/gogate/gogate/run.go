@@ -124,7 +124,9 @@ func runBuild(ctx context.Context, r Runner, dir string, extra []string) Step {
 // enabled (and the failures are isolable by name).
 func runTest(ctx context.Context, r Runner, dir string, extra []string, rerun int) (Step, *Coverage) {
 	step, cov, p := runTestOnce(ctx, r, dir, extra)
-	if rerun < 2 || step.Status != StatusFail || p.PkgFailed || len(p.Failed) == 0 || len(p.Failed) > maxRerunFailures {
+	// rerun is the number of re-runs to attempt (0 = off, N = N reruns), matching
+	// gotestsum's --rerun-fails-max convention. The initial run above is not counted.
+	if rerun < 1 || step.Status != StatusFail || p.PkgFailed || len(p.Failed) == 0 || len(p.Failed) > maxRerunFailures {
 		return step, cov
 	}
 
@@ -246,7 +248,9 @@ func rerunFailed(ctx context.Context, r Runner, dir string, extra []string, step
 	flaky := map[string]bool{}
 	lastFailures := step.Diagnostics
 
-	for attempt := 2; attempt <= attempts && len(remaining) > 0; attempt++ {
+	// The loop performs exactly `attempts` re-runs of the initial failures (or fewer
+	// if they all pass early); attempt counts the re-runs, not the initial run.
+	for attempt := 1; attempt <= attempts && len(remaining) > 0; attempt++ {
 		res := r.Run(ctx, dir, "go", rerunArgs(extra, remaining)...)
 		p := parseTestJSON(res.Stdout)
 		for _, ft := range remaining {
