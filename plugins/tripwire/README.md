@@ -119,10 +119,6 @@ Each line carries cumulative fields:
 > ```sh
 > jq -s 'group_by(.sessionID) | map(last)' opencode-tripwire.sessions.jsonl
 > ```
-> or with `awk` (keep last seen per session):
-> ```sh
-> awk '{ m[$0]=0 } END {}' # group by sessionID, keep last line
-> ```
 
 Logging failures never interrupt tracking (they degrade silently).
 

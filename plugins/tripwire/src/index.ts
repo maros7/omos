@@ -14,7 +14,8 @@
 
 import type { Plugin } from "@opencode-ai/plugin"
 import * as fs from "node:fs"
-import { dirname } from "node:path"
+import { homedir } from "node:os"
+import { dirname, join } from "node:path"
 import { loadConfig, type TripwireConfig, type Budget } from "./config"
 
 type Metric = "cost" | "steps" | "edits" | "tools" | "compactions" | "reads"
@@ -140,7 +141,10 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
       s.cacheWrite += p.tokens?.cache?.write ?? 0
 
       // Optional JSONL session-summary logging (cumulative; one line per N steps).
-      if (cfg.log.enabled && s.steps % Math.max(1, cfg.log.every) === 0) {
+      // every may arrive non-numeric via untyped JSONC/plugin-option merge — clamp.
+      const everyN = Math.floor(Number(cfg.log.every))
+      const every = Number.isFinite(everyN) && everyN >= 1 ? everyN : 1
+      if (cfg.log.enabled && s.steps % every === 0) {
         try {
           const line = JSON.stringify({
             ts: new Date().toISOString(),
@@ -156,11 +160,12 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
             tools: s.tools,
             compactions: s.compactions,
           })
-          fs.mkdirSync(dirname(cfg.log.path), { recursive: true })
-          fs.appendFileSync(cfg.log.path, line + "\n")
-        } catch (e: any) {
-          // ponytail: logging must never throw into the hook — silently degrade.
-          console.warn(`[opencode-tripwire] session log append failed: ${e?.message}`)
+          // node:fs does not expand ~ — resolve a leading ~/ to the home dir.
+          const logPath = cfg.log.path.startsWith("~/") ? join(homedir(), cfg.log.path.slice(2)) : cfg.log.path
+          fs.mkdirSync(dirname(logPath), { recursive: true })
+          fs.appendFileSync(logPath, line + "\n")
+        } catch {
+          // ponytail: logging must never throw into the hook; silent-degrade by contract
         }
       }
 

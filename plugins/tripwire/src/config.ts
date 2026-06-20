@@ -149,8 +149,9 @@ function envOverrides(): Partial<TripwireConfig> {
   const num = (v?: string) => (v != null && v !== "" && !isNaN(+v) ? +v : undefined)
   const o: any = { budgets: {} }
   if (e.OPENCODE_TRIPWIRE_DISABLED === "1" || e.OPENCODE_TRIPWIRE === "off") o.enabled = false
-  if (e.OPENCODE_TRIPWIRE_LOG && e.OPENCODE_TRIPWIRE_LOG !== "0" && e.OPENCODE_TRIPWIRE_LOG !== "off") {
-    o.log = { ...(o.log ?? {}), enabled: true }
+  if (e.OPENCODE_TRIPWIRE_LOG != null) {
+    const falsy = new Set(["0", "false", "off", "no", ""])
+    o.log = { ...(o.log ?? {}), enabled: !falsy.has(e.OPENCODE_TRIPWIRE_LOG.toLowerCase()) }
   }
   if (e.OPENCODE_TRIPWIRE_LOG_PATH) o.log = { ...(o.log ?? {}), path: e.OPENCODE_TRIPWIRE_LOG_PATH }
   if (e.OPENCODE_TRIPWIRE_LOG_EVERY) {
