@@ -33,10 +33,15 @@ gogate/                   library (gate/command orchestration + parsers)
 
 ## Install
 
+Nothing to install by hand — enable the plugin in your `opencode.json` (point at the
+`plugins/gogate` directory) and it downloads the matching binary from the latest GitHub
+Release on first use (see [Distribution](#distribution)). For local development you can
+still build it directly:
+
 ```sh
-go install github.com/maros7/omos/plugins/gogate/cmd/gogate@latest   # puts gogate on PATH
-# or, in this repo, for development:
-go build -o bin/gogate ./cmd/gogate
+go build -o bin/gogate ./cmd/gogate   # the plugin prefers this dev build
+# or put it on PATH:
+go install github.com/maros7/omos/plugins/gogate/cmd/gogate@latest
 ```
 
 ## CLI usage
@@ -144,8 +149,8 @@ The `.opencode/` directory is loaded automatically when OpenCode runs in this pr
 
 - **Tool** `gogate` — callable by the model. Always runs the gate; pass an optional
   `command` (a `go test …`) to scope the test step, and optionally `rerunFails` to re-run
-  flaky tests. Resolves the binary as `./bin/gogate` (when developing gogate itself) else
-  `gogate` on `PATH`.
+  flaky tests. Resolves the binary via the order described under
+  [Distribution](#distribution) (auto-downloading it on first use if needed).
 - **Plugin** `go-gate` — intercepts `bash` calls and rewrites a recognized Go command by
   **prepending `gogate`** (e.g. `go test -run X ./...` → `gogate go test -run X ./...`),
   so the model's habitual `go build`/`go test`/`golangci-lint` each trigger the full gate
@@ -181,32 +186,25 @@ golangci-lint, so `-short` skips them and they skip themselves when it isn't ins
 
 Prebuilt binaries are built by **GoReleaser** (`.goreleaser.yaml`) for darwin/linux/windows
 × amd64/arm64 (`CGO_ENABLED=0`, static). Pushing a `v*` tag runs
-`.github/workflows/release.yml`, which publishes the archives + `checksums.txt` to a
-GitHub Release **and** publishes the npm packages (see below). Publishing requires an
-`NPM_TOKEN` repository secret with publish rights on the `gogate` package and the
-`@gogate` scope.
+`.github/workflows/release.yml`, which uploads the archives plus `checksums.txt` to a
+**GitHub Release**. There is **no npm package** — the OpenCode plugin is the only
+distribution path.
 
-The `npm/` package wraps the binary so it runs via `bunx`/`npx` — no Go needed. Its
-launcher (`npm/bin/gogate.cjs`) resolves the binary in order: `$GOGATE_BIN` → the
-`@gogate/<os>-<arch>` platform package (when published) → a local `bin/gogate` dev build.
+On first use the plugin downloads the binary matching your OS/arch from the **latest**
+GitHub Release, verifies it against `checksums.txt` (SHA-256), and caches it under
+`$XDG_CACHE_HOME/gogate` (or `~/.cache/gogate`). After that it runs entirely from the
+cache — no per-call network.
 
-**Use it locally right now** (points at this repo, pre-publish):
+`resolveBinary` picks the binary in this order (first hit wins):
 
-```sh
-go build -o bin/gogate ./cmd/gogate   # the launcher's local fallback
-cd npm && bun link                    # register "gogate" globally
-bunx gogate go test -run=TestX ./...  # runs the gate via the local binary
-# (bun unlink in npm/ to undo)
-```
+1. **`GOGATE_BIN`** — explicit path to a binary (overrides everything).
+2. **`<plugin>/bin/gogate`** — a local dev build, when present.
+3. **`<cache>/bin/gogate`** — a previously downloaded binary (no network).
+4. **download + verify + cache** the release binary.
 
-**Publishing** is automated by `npm/scripts/publish.mjs` (invoked from the release
-workflow on a `v*` tag). It reads the binaries out of the GoReleaser archives in `dist/`
-and publishes the `npm/` package as `gogate` plus one `@gogate/<os>-<arch>` package per
-platform (each carrying its binary with `os`/`cpu` constraints) listed under
-`optionalDependencies` — the esbuild pattern, so a published `bunx gogate` installs only
-the matching prebuilt binary. All versions are derived from the pushed tag (the `0.1.0`
-in `npm/package.json` is just a placeholder the script rewrites). The launcher already
-resolves those packages.
+Set **`GOGATE_VERSION`** to pin a specific release tag (e.g. `v1.2.3`); otherwise the
+latest release is used and cached forever. If `GITHUB_TOKEN` is set it is sent as a bearer
+token on the GitHub API call (useful to avoid rate limits).
 
 ## Requirements
 
