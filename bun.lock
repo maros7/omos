@@ -17,7 +17,7 @@
     },
     "plugins/tripwire": {
       "name": "opencode-tripwire",
-      "version": "0.1.1",
+      "version": "0.1.0",
       "devDependencies": {
         "@opencode-ai/plugin": "1.17.8",
         "@types/node": "26.0.0",
