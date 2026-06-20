@@ -1,7 +1,6 @@
 {
   "name": "opencode-gogate-plugin",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -12,6 +11,10 @@
     "url": "git+https://github.com/maros7/omos.git",
     "directory": "plugins/gogate"
   },
+  "files": [
+    "src",
+    "README.md"
+  ],
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc --noEmit",
