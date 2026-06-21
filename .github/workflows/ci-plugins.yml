@@ -1,12 +1,14 @@
 name: CI plugins
 
 # Single matrix workflow for every TS plugin under `plugins/*/`. Plugin
-# directories are auto-discovered from the presence of `package.json`, so
+# directories are auto-discovered from the presence of `tsconfig.json`, so
 # adding or removing a plugin requires ZERO edits to this file — just add or
 # remove the `plugins/<name>/` directory.
 #
-# Job display names are matrix-expanded (`<plugin> Typecheck`, `<plugin> Lint`,
-# `<plugin> TS`) to match the exact check names required by branch protection.
+# Each plugin's matrix cells (`<plugin> Typecheck`, `<plugin> Lint`,
+# `<plugin> TS`) are aggregated by the static `Plugins gate` job. Branch
+# protection requires only `Go gate` + `Plugins gate`, so adding/removing a
+# plugin needs ZERO edits here AND zero branch-protection changes.
 
 on:
   push:
@@ -62,13 +64,25 @@ jobs:
           # Don't leave the auth token in .git/config where dependency code could read it.
           persist-credentials: false
 
-      # Find every `plugins/<name>/package.json` (depth 2 from `plugins/`) and
-      # emit a JSON array of the `<name>` segments for the downstream matrix.
-      # `jq -R . | jq -sc .` turns one-per-line strings into a compact JSON array.
+      # Find every `plugins/<name>/tsconfig.json` (exactly depth 2 from repo
+      # root) and emit a JSON array of the `<name>` segments for the downstream
+      # matrix. Using the `tsconfig.json` marker (not `package.json`) ensures
+      # only real TS plugins are swept. `jq -R . | jq -sc .` turns one-per-line
+      # strings into a compact JSON array.
+      #
+      # PER-PLUGIN CONTRACT: every discovered plugin MUST define `typecheck`,
+      # `lint`, and `test` scripts in its package.json — otherwise its matrix
+      # cell fails and `Plugins gate` goes red.
       - name: List plugin directories
         id: list
         run: |
-          plugins=$(find plugins -maxdepth 2 -name package.json -exec dirname {} \; | sed 's|^plugins/||' | sort | jq -R . | jq -sc .)
+          set -euo pipefail
+          plugins=$(find plugins -mindepth 2 -maxdepth 2 -name tsconfig.json -exec dirname {} \; | sed 's|^plugins/||' | sort | jq -R . | jq -sc .)
+          echo "discovered plugins: $plugins"
+          if [ "$plugins" = "[]" ]; then
+            echo "error: no plugins discovered (no plugins/*/tsconfig.json found)" >&2
+            exit 1
+          fi
           echo "plugins=$plugins" >> "$GITHUB_OUTPUT"
 
   typecheck:
@@ -228,3 +242,23 @@ jobs:
           files: plugins/${{ matrix.plugin }}/coverage/lcov.info
           flags: ${{ matrix.plugin }}-ts
           fail_ci_if_error: false
+
+  # Static aggregator over the auto-discovered per-plugin matrix. This is the
+  # single required branch-protection context (alongside `Go gate`), so adding
+  # or removing a plugin never changes the required checks. Needs no checkout or
+  # network, hence `permissions: {}` and no harden-runner step.
+  gate:
+    name: Plugins gate
+    needs: [discover, typecheck, lint, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Verify all plugin checks passed
+        run: |
+          set -euo pipefail
+          [ "${{ needs.discover.result }}" = success ] || { echo "discover failed: ${{ needs.discover.result }}"; exit 1; }
+          for r in "${{ needs.typecheck.result }}" "${{ needs.lint.result }}" "${{ needs.test.result }}"; do
+            [ "$r" = success ] || { echo "a matrix job did not succeed: $r"; exit 1; }
+          done
+          echo "all plugin checks passed"
