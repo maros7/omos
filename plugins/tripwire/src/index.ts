@@ -272,8 +272,10 @@ export const TripwirePlugin: Plugin = ({ client, directory }, options?: unknown)
   return Promise.resolve({
     // Accumulate cost/steps as each step finishes, then enforce the ceiling.
     event: async ({ event }: { event: TripwireEvent }) => {
-      // Note: property path per opencode event schema; guarded so a schema
-      // drift degrades to "no cost tracking" rather than throwing.
+      // Guard against SDK schema drift: if event is missing/malformed, degrade
+      // to a no-op rather than throwing (which would reject the hook promise).
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime defense; TS types say event is always defined but the SDK could violate that
+      if (!event || typeof event.type !== "string") return
       const type = event.type
       const p: EventProps | undefined = event.properties
 
