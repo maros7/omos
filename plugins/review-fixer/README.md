@@ -1,111 +1,108 @@
 # review-fixer — token-minimized PR review-thread handling for OpenCode
 
-`review-fixer` triages and resolves **pull-request review threads from any reviewer** and
-emits **compact, TOKEN-MINIMIZED text** so an LLM spends few tokens per call. It lists
-unresolved threads on a PR and, once you've fixed the code, posts each reply and resolves
-the thread.
+`review-fixer` triages and resolves **pull-request review threads from any reviewer**
+and emits **compact, TOKEN-MINIMIZED text** so an LLM spends few tokens per call. It
+lists unresolved threads on a PR and, once you've fixed the code, posts each reply and
+resolves the thread — in pure TypeScript. **No Go binary, no download.**
 
 It ships as:
 
-- a **Go binary** (`cmd/review-fixer`) — a thin wrapper around the `reviewfixer`
-  package, which holds all logic and is independently tested,
-- an **OpenCode custom tool** (`review-fixer`) that calls the binary (with
-  `-format=text`) and returns its compact text output to the model,
-- an **OpenCode plugin** that registers that tool and **auto-downloads** the prebuilt
-  binary on first use (see [Distribution](#distribution)).
-
-Unlike `gogate`, this plugin does **not** rewrite bash commands — it only registers the
-`review-fixer` tool plus binary resolution.
+- an **OpenCode custom tool** (`review-fixer`) — pure TS, registered by the plugin,
+- a **plugin** (`opencode-review-fixer`) that registers the tool, and
+- a **skill** (`SKILL.md`) that's auto-installed into your opencode config dir on
+  `postinstall` (best-effort; copyable by hand if needed).
 
 ## Layout
 
 ```
-cmd/review-fixer/main.go   thin CLI wrapper
-reviewfixer/               library (command orchestration + GitHub API)
-src/index.ts               plugin: registers the review-fixer custom tool
-src/resolve.ts             binary resolution (override → dev build → cache → download)
-src/args.ts                maps tool args → binary argv + stdin payload
+src/index.ts        plugin entry: registers the review-fixer custom tool
+src/actions.ts      top-level wiring (token/repo/PR resolve → list/apply/verify)
+src/github.ts       minimal GitHub GraphQL + REST client
+src/resolve.ts      token / repo / PR discovery (flag → env → gh / git)
+src/report.ts       pure rendering + filtering (byte-exact output contracts)
+src/apply.ts        reply+resolve orchestration over a batch of items
+src/deps.ts         side-effect seam (env / fetch / subprocess) for tests
+install-skill.mjs   best-effort postinstall: copies SKILL.md into ~/.config
+testdata/*.golden   committed golden text used by tests (source of truth)
 ```
 
 ## Install
 
-Nothing to install — enable the plugin in your `opencode.json` (point at the
-`plugins/review-fixer` directory) and it downloads the matching binary from the latest
-GitHub Release on first use. For Go-based local development you can still build it:
+Enable the plugin in your `opencode.json` by adding it to the `plugin` array, then
+reference the published npm package:
 
-```sh
-go build -o bin/review-fixer ./cmd/review-fixer   # the plugin prefers this dev build
+```jsonc
+{
+  "plugin": {
+    "opencode-review-fixer": "npm:opencode-review-fixer"
+  }
+}
 ```
 
-## CLI contract
-
-Binary name: `review-fixer`. Always exits `0` (success) / `1` (error) / `2` (usage).
-Global flags (parsed **before** the subcommand): `-token`, `-api-base`,
-`-format text|json` (default `text`).
-
 ```sh
-review-fixer -format=text list   [-pr <int>] [-repo owner/name] [-author <login>]
-review-fixer -format=text apply  [-pr <int>] [-repo owner/name] [-author <login>]   # items JSON on stdin
-review-fixer -format=text verify [-pr <int>] [-repo owner/name] [-author <login>]
+bun install   # or npm install / pnpm install
 ```
 
-`apply` reads a JSON array of `{ "threadId": "...", "body": "..." }` from **stdin**, and
-for each item posts the reply and resolves the thread. `verify` reports a PR's remaining
-unresolved threads.
+The bundled `SKILL.md` is auto-copied to
+`$XDG_CONFIG_HOME/opencode/skills/review-fixer/SKILL.md` (default
+`~/.config/opencode/skills/review-fixer/SKILL.md`) by `postinstall`. The copy is
+**best-effort** — if it fails (permissions, read-only mount, etc.) install still
+succeeds and a warning is printed to stderr. You can always copy `SKILL.md` by hand
+from the package if needed.
 
-## OpenCode integration
+## `review-fixer` tool args
 
-The `review-fixer` tool is callable by the model. **You** fix the code; this tool posts
-the reply and resolves the thread. It takes an `action` plus the fields that action needs:
+| arg      | type                                | actions             |
+| -------- | ----------------------------------- | ------------------- |
+| `action` | enum (`list`/`apply`/`verify`)      | (required) all      |
+| `pr`     | int                                 | list, apply, verify |
+| `repo`   | string (owner/name)                 | list, apply, verify |
+| `author` | string (substring filter on login)  | list, apply, verify |
+| `items`  | array of `{ threadId, body }`       | apply               |
 
-| arg      | type                                | actions            |
-| -------- | ----------------------------------- | ------------------ |
-| `action` | enum (`list`/`apply`/`verify`)      | (required) all     |
-| `pr`     | int                                 | list, apply, verify|
-| `repo`   | string (owner/name)                 | list, apply, verify|
-| `author` | string (substring filter on login)  | list, apply, verify|
-| `items`  | array of `{ threadId, body }`       | apply              |
+`pr`, `repo`, and `author` are auto-resolved from `gh` / `git` when omitted (`gh auth
+token`, `gh repo view`, current branch → `gh pr list`). `author` omitted means
+**all reviewers**.
 
-Globals come first (`-format=text` then the subcommand), then `-pr`/`-repo`/`-author` as
-provided. For `apply`, `items` is **not** placed on the command line — it is streamed to
-the binary's stdin as JSON. A missing flag is passed through so the binary returns its own
-usage error (exit 2), which the tool surfaces verbatim. Binary resolution order is
-described under [Distribution](#distribution).
+## Two-call workflow
 
-Install plugin dependencies (OpenCode runs `bun install` at startup):
-
-```sh
-bun install
 ```
+1. { "action": "list" }                                  → see unresolved threads
+2. { "action": "apply", "items": [...] }                 → reply + resolve all at once
+3. { "action": "verify" }    (only if remaining > 0)     → confirm what's left
+```
+
+Example:
+
+```json
+{
+  "action": "apply",
+  "items": [
+    { "threadId": "PRRT_kwDOExample", "body": "Fixed: extracted the helper and added a nil check." }
+  ]
+}
+```
+
+Resolve a thread only after you've actually addressed (or rebutted) it.
 
 ## Develop & test
 
 ```sh
-bun test --cwd plugins/review-fixer            # TS unit tests (resolve + arg building)
-bun run --cwd plugins/review-fixer typecheck   # tsc --noEmit
-go test ./reviewfixer/ -cover                  # Go unit tests
+bun install
+cd plugins/review-fixer
+bun test                  # all unit tests
+bun run typecheck         # tsc --noEmit
+bun test -u               # REGENERATE testdata/*.golden from current output
+bun test --coverage       # tests with coverage (target: 100%)
 ```
 
-The TS tests mock the filesystem/platform and do not depend on a built binary existing.
+The test suite is table-driven with committed **golden files** for every text-producing
+function (`renderList`, `renderVerify`, `renderApply`, `applyLine`, end-to-end
+`runAction`). Run `bun test -u` whenever you intentionally change a byte of output, then
+review the diff in `testdata/*.golden`.
 
-## Distribution
+## Release
 
-Prebuilt binaries are built by **GoReleaser** for darwin/linux/windows × amd64/arm64.
-Pushing a `v*` tag uploads the archives plus `checksums.txt` to a **GitHub Release**.
-There is **no npm package** — the OpenCode plugin is the only distribution path.
-
-On first use the plugin downloads the binary matching your OS/arch from the **latest**
-GitHub Release, verifies it against `checksums.txt` (SHA-256), and caches it under
-`$XDG_CACHE_HOME/review-fixer` (or `~/.cache/review-fixer`). After that it runs entirely
-from the cache — no per-call network.
-
-`resolveBinary` picks the binary in this order (first hit wins):
-
-1. **`REVIEW_FIXER_BIN`** — explicit path to a binary (override everything).
-2. **`<plugin>/bin/review-fixer`** — a local dev build, when present.
-3. **`<cache>/bin/review-fixer`** — a previously downloaded binary (no network).
-4. **download + verify + cache** the release binary.
-
-Set **`REVIEW_FIXER_VERSION`** to pin a specific release tag (e.g. `v1.2.3`); otherwise
-the latest release is used and cached forever. If `GITHUB_TOKEN` is set it is sent as a
-bearer token on the GitHub API call (useful to avoid rate limits).
+Published to npm via **release-please** on tag `opencode-review-fixer-v*` (Conventional
+Commits drive the version). No GoReleaser, no binaries — `npm publish` is the whole
+story.

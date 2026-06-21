@@ -1,0 +1,67 @@
+// deps.ts — side-effect injection seam. Every external capability (env vars,
+// network, subprocess) flows through `Deps` so tests can drive every branch
+// deterministically without touching the real world.
+import { spawn } from "node:child_process"
+
+/**
+ * Hard cap on any single I/O operation (subprocess OR HTTP request) so a hung
+ * gh/git/api.github.com can't stall the tool. Mirrors Go's
+ * `http.Client{Timeout: 30s}` (cli.go) + exec timeout.
+ */
+export const IO_TIMEOUT_MS = 30_000
+
+/**
+ * Minimal fetch signature. We don't need preconnect/keepalive/etc — just the
+ * call shape — so tests can supply a plain async function. `:ponytail:`
+ */
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+/** Run-cmd result. */
+export type RunResult = {
+  stdout: string
+  exitCode: number
+}
+
+/**
+ * Deps: every side effect (env, network, subprocess) goes through here so tests
+ * drive 100% of branches with zero real I/O. Kept as an `interface` because it
+ * describes a behavioural contract implementations must satisfy.
+ */
+export interface Deps {
+  /** Process environment (read-only view is enough). */
+  env: Record<string, string | undefined>
+  /** fetch implementation (GraphQL + REST). */
+  fetch: FetchLike
+  /** Run an external command (gh/git) capturing stdout. exitCode!==0 = failure; throws only for spawn-time errors. */
+  runCmd: (args: string[], opts?: { cwd?: string }) => Promise<RunResult>
+}
+
+/** defaultDeps wires the real implementations. */
+export function defaultDeps(): Deps {
+  return {
+    env: process.env,
+    fetch: globalThis.fetch,
+    runCmd: (args, opts) =>
+      new Promise<RunResult>((resolve) => {
+        const cmd = args[0]
+        if (!cmd) {
+          resolve({ stdout: "", exitCode: 1 })
+          return
+        }
+        // Default stdio="pipe" — avoids the @types/node ChildProcess union
+        // conflict that arises with `stdio: ["ignore", "pipe", "pipe"]`. We
+        // never write to stdin so a piped-but-unused stdin behaves the same
+        // as "ignore" for our use. :ponytail:
+        const child = spawn(cmd, args.slice(1), {
+          cwd: opts?.cwd,
+          timeout: IO_TIMEOUT_MS,
+        })
+        let stdout = ""
+        child.stdout.on("data", (d: Buffer) => {
+          stdout += d.toString("utf8")
+        })
+        child.on("error", () => resolve({ stdout, exitCode: 1 }))
+        child.on("close", (code) => resolve({ stdout, exitCode: code ?? 1 }))
+      }),
+  }
+}

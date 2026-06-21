@@ -1,0 +1,6 @@
+ok PRRT_1
+skip PRRT_2 (unknown thread)
+reply-fail PRRT_3: reply: status 500: boom
+resolve-fail PRRT_4: resolve: graphql: bad
+skip PRRT_5 (already resolved)
+applied 1/5; remaining unresolved: 2

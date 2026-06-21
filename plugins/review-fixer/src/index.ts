@@ -1,9 +1,9 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
-import { resolveBinary } from "./resolve"
-import { buildCommandArgs, stdinPayload, type ReviewFixerArgs } from "./args"
+import { defaultDeps } from "./deps"
+import { runAction } from "./actions"
 
-// The review-fixer custom tool: shells out to the resolved review-fixer binary and
-// returns its compact, TOKEN-MINIMIZED text output (model-friendly).
+// The review-fixer custom tool: pure-TS implementation. No external binary —
+// list/apply/verify happen in-process and return compact, TOKEN-MINIMIZED text.
 const reviewFixerTool = tool({
   description:
     "TOKEN-MINIMIZED handling of PR review threads from any reviewer. Lists / responds-to " +
@@ -48,51 +48,26 @@ const reviewFixerTool = tool({
       .describe("Threads to reply-to and resolve (apply only). Sent to the binary over stdin."),
   },
   async execute(args, context) {
-    const dir = context.directory
-    const a = args as ReviewFixerArgs
-
-    let argv: string[]
+    const deps = defaultDeps()
     try {
-      // First use may download + cache the binary from the GitHub Release.
-      argv = await resolveBinary(dir)
+      const { output } = await runAction(deps, {
+        action: args.action,
+        opts: { pr: args.pr, repo: args.repo, author: args.author, items: args.items },
+        cwd: context.directory,
+      })
+      return output
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      return `review-fixer: could not install binary: ${message}`
+      return `review-fixer: ${e instanceof Error ? e.message : String(e)}`
     }
-
-    const flags = [...argv.slice(1), ...buildCommandArgs(a)]
-    const payload = stdinPayload(a)
-
-    const proc = Bun.spawn([argv[0], ...flags], {
-      cwd: dir,
-      stdin: payload !== null ? new TextEncoder().encode(payload) : "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ])
-    const exitCode = await proc.exited
-
-    const out = stdout.trim()
-    if (out) return out
-
-    const err = stderr.trim()
-    if (err) return err
-    return `review-fixer produced no output (exit ${exitCode}).`
   },
 })
 
-// ReviewFixer exposes the review-fixer custom tool. Unlike gogate it does not rewrite
-// bash commands — only the tool registration + binary resolution are needed.
-export const ReviewFixer: Plugin = async () => {
-  return {
+/** ReviewFixer exposes the `review-fixer` custom tool. */
+export const ReviewFixer: Plugin = () =>
+  Promise.resolve({
     tool: {
       "review-fixer": reviewFixerTool,
     },
-  }
-}
+  })
 
 export default ReviewFixer

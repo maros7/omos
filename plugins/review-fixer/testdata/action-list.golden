@@ -1,0 +1,5 @@
+PR #42 maros7/omos: 2 unresolved thread(s)
+[1] PRRT_a  src/x.ts:10  (alice)
+    fix this
+[2] PRRT_b  src/y.ts  (bob)
+    typo
