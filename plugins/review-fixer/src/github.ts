@@ -4,6 +4,7 @@
 // the caller can surface them verbatim to the model.
 import type { FetchLike } from "./deps"
 import { IO_TIMEOUT_MS } from "./deps"
+import { clip } from "./text"
 
 const GRAPHQL_QUERY =
   "query($owner:String!,$repo:String!,$pr:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{id isResolved comments(first:50){nodes{databaseId body author{login} path line}}}}}}}"
@@ -104,26 +105,12 @@ function parseJSON(text: string): unknown {
 
 /**
  * snippet — trim + cap a body to MAX_SNIPPET_BYTES UTF-8 bytes (matches Go
- * client.go:123 byte-for-byte). Uses encode→slice→decode so multi-byte runes
- * aren't split mid-rune.
+ * client.go:123 byte-for-byte). Uses the shared byte-safe `clip` from text.ts
+ * so multi-byte runes aren't split mid-rune.
  */
 const MAX_SNIPPET_BYTES = 200
 function snippet(s: string): string {
-  const trimmed = s.trim()
-  return clipByteSafe(trimmed, MAX_SNIPPET_BYTES)
-}
-
-/** Byte-safe clip used by snippet (separate from report.clip to keep report pure-sync). */
-function clipByteSafe(s: string, n: number): string {
-  const enc = new TextEncoder().encode(s)
-  if (enc.length <= n) return s
-  let end = n
-  while (end > 0) {
-    const b = enc[end]
-    if (typeof b !== "number" || (b & 0xc0) !== 0x80) break
-    end--
-  }
-  return new TextDecoder().decode(enc.subarray(0, end))
+  return clip(s.trim(), MAX_SNIPPET_BYTES)
 }
 
 /** GithubClient: minimal GraphQL + REST client for review-fixer. */
@@ -217,7 +204,7 @@ export class GithubClient {
       // `{"data":null}` from GitHub lands here rather than crashing the caller.
       throw new Error(`graphql: decode data: ${snippet(text)}`)
     }
-    return parsed.data as T // eslint-disable-line @typescript-eslint/consistent-type-assertions -- :ponytail: T is the caller's expected shape; we cannot validate generic JSON against an arbitrary T at runtime without a schema lib. The envelope (`parsed`) is already type-guarded above, and `parsed.data == null` is explicitly rejected, so the only remaining escape hatch is shape-mismatch on T's own fields — caller-side optional chaining handles that.
+    return parsed.data as T // eslint-disable-line @typescript-eslint/consistent-type-assertions -- T is the caller's expected shape; we cannot validate generic JSON against an arbitrary T at runtime without a schema lib. The envelope (`parsed`) is already type-guarded above, and `parsed.data == null` is explicitly rejected, so the only remaining escape hatch is shape-mismatch on T's own fields — caller-side optional chaining handles that.
   }
 
   /**
@@ -259,6 +246,8 @@ export function toThread(node: ThreadNode): Thread {
   const comments = node.comments?.nodes ?? []
   const first = comments[0]
   if (!first) {
+    // Blank-thread passthrough matches Go contract (empty comments → ghost row,
+    // not skipped). Lets downstream renderers decide what to do with it.
     return {
       id: node.id,
       isResolved: node.isResolved ?? false,

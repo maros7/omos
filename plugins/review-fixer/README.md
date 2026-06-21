@@ -92,14 +92,14 @@ bun install
 cd plugins/review-fixer
 bun test                  # all unit tests
 bun run typecheck         # tsc --noEmit
-bun test -u               # REGENERATE testdata/*.golden from current output
+GOLDEN_UPDATE=1 bun test  # REGENERATE testdata/*.golden from current output
 bun test --coverage       # tests with coverage (target: 100%)
 ```
 
 The test suite is table-driven with committed **golden files** for every text-producing
 function (`renderList`, `renderVerify`, `renderApply`, `applyLine`, end-to-end
-`runAction`). Run `bun test -u` whenever you intentionally change a byte of output, then
-review the diff in `testdata/*.golden`.
+`runAction`). Run `GOLDEN_UPDATE=1 bun test` whenever you intentionally change a byte of
+output, then review the diff in `testdata/*.golden`.
 
 ## Release
 

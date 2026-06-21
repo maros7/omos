@@ -12,7 +12,7 @@ export const IO_TIMEOUT_MS = 30_000
 
 /**
  * Minimal fetch signature. We don't need preconnect/keepalive/etc — just the
- * call shape — so tests can supply a plain async function. `:ponytail:`
+ * call shape — so tests can supply a plain async function.
  */
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -48,10 +48,7 @@ export function defaultDeps(): Deps {
           resolve({ stdout: "", exitCode: 1 })
           return
         }
-        // Default stdio="pipe" — avoids the @types/node ChildProcess union
-        // conflict that arises with `stdio: ["ignore", "pipe", "pipe"]`. We
-        // never write to stdin so a piped-but-unused stdin behaves the same
-        // as "ignore" for our use. :ponytail:
+        // Default stdio="pipe"; piped stdin avoids @types/node ChildProcess union conflict.
         const child = spawn(cmd, args.slice(1), {
           cwd: opts?.cwd,
           timeout: IO_TIMEOUT_MS,

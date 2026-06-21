@@ -34,7 +34,7 @@ function json(body: unknown, status = 200): Response {
   })
 }
 
-/** Single-thread GraphQL page response. */
+/** Single-thread GraphQL page response. Realistic-shape but obfuscated. */
 function pageWithThread(t: {
   id: string
   databaseId: number
@@ -55,10 +55,10 @@ function pageWithThread(t: {
                 nodes: [
                   {
                     databaseId: t.databaseId,
-                    body: t.body ?? "x",
-                    author: { login: "alice" },
-                    path: t.path ?? "a.ts",
-                    line: t.line ?? 1,
+                    body: t.body ?? "Consider extracting this into a helper to avoid duplication across the call sites.",
+                    author: { login: "copilot-pull-request-reviewer" },
+                    path: t.path ?? "src/components/Button.tsx",
+                    line: t.line ?? 47,
                   },
                 ],
               },
@@ -70,23 +70,43 @@ function pageWithThread(t: {
   }
 }
 
-const SCOPE = { owner: "maros7", repo: "omos", pr: 42 }
+const SCOPE = { owner: "acme", repo: "widgets", pr: 137 }
+
+/** Realistic-shape thread IDs (base64-style, modeled after real PRRT_kwDO…). */
+const TID_REPLY = "PRRT_kwDOreply0fail0001"
+const TID_RESOLVE = "PRRT_kwDOreslv0fail0002"
 
 describe("integration: real GithubClient → applyItems → renderApply", () => {
   test("reply-fail (HTTP 401) surfaces `reply: status 401: …` in the golden", async () => {
     const fetch = fakeFetch([
       // First call is listThreads (GraphQL) — succeeds.
-      { match: "/graphql", respond: () => json({ data: pageWithThread({ id: "PRRT_X", databaseId: 7 }) }) },
-      // Reply REST call returns 401.
-      { match: "/replies", respond: () => new Response("nope", { status: 401 }) },
+      { match: "/graphql", respond: () => json({ data: pageWithThread({ id: TID_REPLY, databaseId: 1738294501 }) }) },
+      // Reply REST call returns 401 with a realistic GitHub error envelope.
+      {
+        match: "/replies",
+        respond: () =>
+          new Response(
+            JSON.stringify({
+              message: "Bad credentials",
+              documentation_url: "https://docs.github.com/rest",
+              status: "401",
+            }),
+            { status: 401, headers: { "content-type": "application/json" } },
+          ),
+      },
     ])
     const client = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
-    const threads: Thread[] = await client.listThreads("maros7", "omos", 42)
+    const threads: Thread[] = await client.listThreads("acme", "widgets", 137)
     const rep = await applyItems(client, {
       scope: SCOPE,
       threads,
       author: "",
-      items: [{ threadId: "PRRT_X", body: "fixed" }],
+      items: [
+        {
+          threadId: TID_REPLY,
+          body: "Fixed in abc1234 - extracted the helper and added a null check.",
+        },
+      ],
     })
     expect(rep.results[0]?.reply).toBe("fail")
     expect(rep.results[0]?.error).toMatch(/^reply: status 401:/)
@@ -102,25 +122,31 @@ describe("integration: real GithubClient → applyItems → renderApply", () => 
           listCallCount++
           // First graphql call is listThreads → success.
           if (listCallCount === 1) {
-            return json({ data: pageWithThread({ id: "PRRT_Y", databaseId: 8 }) })
+            return json({ data: pageWithThread({ id: TID_RESOLVE, databaseId: 1738294502 }) })
           }
-          // Second graphql call is resolveThread → errors[].
-          return json({ errors: [{ message: "forbidden" }] })
+          // Second graphql call is resolveThread → errors[] with a realistic
+          // GitHub GraphQL "Resource not accessible" message.
+          return json({ errors: [{ message: "Resource not accessible by integration" }] })
         },
       },
       // Reply REST call succeeds.
-      { match: "/replies", respond: () => json({ id: 999 }, 201) },
+      { match: "/replies", respond: () => json({ id: 1738294602 }, 201) },
     ])
     const client = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
-    const threads: Thread[] = await client.listThreads("maros7", "omos", 42)
+    const threads: Thread[] = await client.listThreads("acme", "widgets", 137)
     const rep = await applyItems(client, {
       scope: SCOPE,
       threads,
       author: "",
-      items: [{ threadId: "PRRT_Y", body: "fixed" }],
+      items: [
+        {
+          threadId: TID_RESOLVE,
+          body: "Fixed in abc1234 - the error is now wrapped with fmt.Errorf and logged.",
+        },
+      ],
     })
     expect(rep.results[0]?.resolve).toBe("fail")
-    expect(rep.results[0]?.error).toMatch(/^resolve: graphql: forbidden$/)
+    expect(rep.results[0]?.error).toMatch(/^resolve: graphql: Resource not accessible by integration$/)
     expectGolden("integration-resolve-fail", renderApply(rep))
   })
 })
@@ -131,7 +157,7 @@ describe("integration: GraphQL envelope edge cases", () => {
     const client = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
     let err: Error | undefined
     try {
-      await client.listThreads("o", "r", 1)
+      await client.listThreads("acme", "widgets", 137)
     } catch (e) {
       err = e instanceof Error ? e : new Error(String(e))
     }
@@ -160,7 +186,7 @@ describe("integration: GraphQL envelope edge cases", () => {
     const client = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
     let err: Error | undefined
     try {
-      await client.listThreads("o", "r", 1)
+      await client.listThreads("acme", "widgets", 137)
     } catch (e) {
       err = e instanceof Error ? e : new Error(String(e))
     }

@@ -1,3 +1,3 @@
-PR #7 o/r: 1 unresolved thread(s)
-[1] PRRT_c  a.ts:1  (x)  +3
-    hmm
+PR #137 acme/widgets: 1 unresolved thread(s)
+[1] PRRT_kwDORSTU12VWXZ3456  src/server/handler.go:215  (copilot-pull-request-reviewer)  +3
+    This error is being swallowed — consider wrapping with fmt.Errorf to preserve context.

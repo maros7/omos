@@ -1,1 +1,1 @@
-reply-fail PRRT_a: reply: status 401: nope
+reply-fail PRRT_kwDOIJLM06NOPQ7890: reply: status 401: {"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}

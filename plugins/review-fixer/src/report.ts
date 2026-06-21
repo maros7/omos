@@ -2,10 +2,12 @@
 // function here is trivially table-testable and produces the byte-exact text
 // the model sees.
 import type { Thread } from "./github"
-import type { ApplyReport } from "./apply"
+import type { ApplyReport, ApplyItemResult } from "./apply"
+import { clip, MAX_BODY_LEN } from "./text"
 
-/** Maximum body bytes we'll ever render. */
-export const MAX_BODY_LEN = 4000
+// Re-export so existing call sites (`import { MAX_BODY_LEN } from "./report"`)
+// keep working without churning the test imports.
+export { MAX_BODY_LEN }
 
 /** Argument bundle for renderList / renderVerify (4 fields would exceed max-params=3). */
 export type RenderArgs = {
@@ -40,25 +42,6 @@ export function firstLine(s: string): string {
     if (t !== "") return clip(t, MAX_BODY_LEN)
   }
   return ""
-}
-
-/**
- * Clip a string to at most `n` UTF-8 bytes without splitting a multi-byte
- * rune: encode → slice → back up over any trailing continuation bytes → decode.
- * Mirrors Go's `clip()` (report.go:43) byte-for-byte.
- */
-export function clip(s: string, n: number): string {
-  const enc = new TextEncoder().encode(s)
-  if (enc.length <= n) return s
-  let end = n
-  // Walk back over UTF-8 continuation bytes (0x80–0xBF) so we don't slice
-  // mid-rune.
-  while (end > 0) {
-    const b = enc[end]
-    if (b === undefined || (b & 0xc0) !== 0x80) break
-    end--
-  }
-  return new TextDecoder().decode(enc.subarray(0, end))
 }
 
 /** Render the indented body block. */
@@ -108,7 +91,7 @@ export function renderVerify(args: RenderArgs): string {
 }
 
 /** Render a single apply result line (used by renderApply). */
-export function applyLine(r: { threadId: string; reply: "ok" | "fail" | "skip"; resolve: "ok" | "skip" | "fail"; error?: string }): string {
+export function applyLine(r: ApplyItemResult): string {
   if (r.reply === "fail") return `reply-fail ${r.threadId}: ${r.error}`
   if (r.resolve === "fail") return `resolve-fail ${r.threadId}: ${r.error}`
   if (r.reply === "skip") return `skip ${r.threadId} (${r.error ?? "already resolved"})`

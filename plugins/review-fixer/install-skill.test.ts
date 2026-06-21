@@ -1,6 +1,6 @@
 // install-skill.test.ts — exercise the postinstall script against a temp
 // XDG_CONFIG_HOME. Verifies file copy + best-effort failure (skipped on
-// platforms where chmod can't reliably deny writes — :ponytail:).
+// platforms where chmod can't reliably deny writes).
 import { test, expect, describe } from "bun:test"
 import { mkdtempSync, mkdirSync, readFileSync, chmodSync, rmSync, existsSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -30,7 +30,7 @@ describe("install-skill.mjs", () => {
   })
 
   test("dest dir unwritable still exits 0 (skipped where chmod can't deny)", () => {
-    // :ponytail: On some filesystems / as root, chmod 0o500 still permits
+    // On some filesystems / as root, chmod 0o500 still permits
     // writes — skip silently when we detect that.
     if (process.platform === "win32") {
       console.warn("skipping unwritable test on win32 (chmod semantics differ)")

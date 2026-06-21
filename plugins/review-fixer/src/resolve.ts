@@ -5,9 +5,9 @@ import type { Deps } from "./deps"
 
 /** Resolve a GitHub token: flag → GH_TOKEN → GITHUB_TOKEN → `gh auth token`. */
 export async function resolveToken(deps: Deps, flagToken?: string): Promise<string> {
-  if (flagToken && flagToken.trim() !== "") return flagToken
-  if (deps.env.GH_TOKEN && deps.env.GH_TOKEN.trim() !== "") return deps.env.GH_TOKEN
-  if (deps.env.GITHUB_TOKEN && deps.env.GITHUB_TOKEN.trim() !== "") return deps.env.GITHUB_TOKEN
+  if (flagToken?.trim()) return flagToken
+  if (deps.env.GH_TOKEN?.trim()) return deps.env.GH_TOKEN
+  if (deps.env.GITHUB_TOKEN?.trim()) return deps.env.GITHUB_TOKEN
   const { stdout, exitCode } = await deps.runCmd(["gh", "auth", "token"])
   if (exitCode !== 0) throw new Error("resolve token: gh auth token failed")
   const tok = stdout.trim()
@@ -15,16 +15,24 @@ export async function resolveToken(deps: Deps, flagToken?: string): Promise<stri
   return tok
 }
 
-/** Resolve the repo as owner/name: flag → `gh repo view`. */
+/**
+ * Resolve the repo as owner/name: flag → `gh repo view`. `cwd` is the target
+ * repo root so `gh repo view` resolves the same remote the old Go binary did
+ * (Go ran gh with `cwd=context.directory`).
+ */
 export async function resolveRepo(
   deps: Deps,
+  cwd: string,
   flagRepo?: string,
 ): Promise<{ owner: string; name: string }> {
   let spec: string
-  if (flagRepo && flagRepo.trim() !== "") {
+  if (flagRepo?.trim()) {
     spec = flagRepo.trim()
   } else {
-    const { stdout, exitCode } = await deps.runCmd(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
+    const { stdout, exitCode } = await deps.runCmd(
+      ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+      { cwd },
+    )
     if (exitCode !== 0) throw new Error("resolve repo: gh repo view failed")
     spec = stdout.trim()
   }

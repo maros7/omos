@@ -6,7 +6,7 @@ import { expect } from "bun:test"
  * isUpdate: true when tests run with -u/--update OR GOLDEN_UPDATE=1, in which
  * case golden files are REWRITTEN from actual output.
  *
- * :ponytail: bun's `test` runner strips `-u`/`--update` from process.argv (it's
+ * bun's `test` runner strips `-u`/`--update` from process.argv (it's
  * bun's own snapshot-update flag), so we additionally honour a GOLDEN_UPDATE
  * env var. The working invocation is therefore `GOLDEN_UPDATE=1 bun test`.
  *
@@ -40,7 +40,7 @@ export function compareOrWrite(path: string, actual: string): void {
     return
   }
   if (!existsSync(path)) {
-    throw new Error(`golden file missing: ${path} (run \`bun test -u\` to generate)`)
+    throw new Error(`golden file missing: ${path} (run \`GOLDEN_UPDATE=1 bun test\` to generate)`)
   }
   expect(actual).toBe(readFileSync(path, "utf8"))
 }

@@ -36,7 +36,7 @@ TS:
 
 Enforced by ESLint + typescript-eslint (review-fixer now; gogate/tripwire to follow).
 
-- No `as` — type guards or fix the type at the source. :ponytail:
+- No `as` — type guards or fix the type at the source.
 - No `any` — `unknown` + narrow, or proper generics.
 - \>3 params → single options object.
 - `type` = data shapes (DTO/payload/config); `interface` = behavioral contracts (svc/repo/strategy).

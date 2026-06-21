@@ -1,5 +1,5 @@
-// eslint.config.js — flat config (ESLint 9). TS type-checked rules via
-// typescript-eslint v8. Lints src/, testdata/, and the install-skill tests.
+// eslint.config.js — ESLint flat config. TS type-checked rules via
+// typescript-eslint. Lints src/, testdata/, and the install-skill tests.
 import tseslint from "typescript-eslint"
 
 export default tseslint.config(

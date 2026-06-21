@@ -1,4 +1,7 @@
 // report.test.ts — table-driven coverage of every pure renderer + filter.
+// Fixture data is realistic-shaped (bot reviewers, real-looking PRRT_ IDs,
+// real review-language bodies) but fully obfuscated — see README for the
+// mapping rationale.
 import { test, expect, describe } from "bun:test"
 import { expectGolden, isUpdate, writeGolden, compareOrWrite } from "../testdata/golden"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -12,22 +15,39 @@ import {
   renderVerify,
   threadLoc,
   firstLine,
-  clip,
   applyLine,
   renderApply,
 } from "./report"
+import { clip } from "./text"
 import type { Thread } from "./github"
 import type { ApplyReport } from "./apply"
 
+/** Realistic-shape thread IDs (base64-style, modeled after real PRRT_kwDO…). */
+const TID = {
+  alpha: "PRRT_kwDOABCD01EFGH2345",
+  beta: "PRRT_kwDOIJLM06NOPQ7890",
+  gamma: "PRRT_kwDORSTU12VWXZ3456",
+  delta: "PRRT_kwDOabcd07efgh8901",
+  epsilon: "PRRT_kwDOijkl14mnop5678",
+  zeta: "PRRT_kwDOqrst21uvwx9012",
+} as const
+
+/** Realistic-shape reviewer logins (bot-style, obfuscated). */
+const AUTHOR = {
+  copilot: "copilot-pull-request-reviewer",
+  coderabbit: "coderabbit-ai",
+} as const
+
+/** Default thread shape used as the base for partial overrides. */
 function t(over: Partial<Thread>): Thread {
   return {
-    id: "PRRT_x",
+    id: TID.alpha,
     isResolved: false,
-    path: "src/a.ts",
-    line: 10,
-    rootCommentID: 1,
-    author: "alice",
-    body: "fix this",
+    path: "src/components/Button.tsx",
+    line: 47,
+    rootCommentID: 1738294501,
+    author: AUTHOR.copilot,
+    body: "Consider extracting this into a helper to avoid duplication across the call sites.",
     replies: 0,
     ...over,
   }
@@ -35,8 +55,8 @@ function t(over: Partial<Thread>): Thread {
 
 describe("threadLoc", () => {
   const cases: Array<{ name: string; input: Thread; expected: string }> = [
-    { name: "with line", input: t({ path: "src/x.ts", line: 42 }), expected: "src/x.ts:42" },
-    { name: "no line", input: t({ path: "src/x.ts", line: 0 }), expected: "src/x.ts" },
+    { name: "with line", input: t({ path: "src/components/Modal.tsx", line: 132 }), expected: "src/components/Modal.tsx:132" },
+    { name: "no line", input: t({ path: "src/utils/format.ts", line: 0 }), expected: "src/utils/format.ts" },
     { name: "no path", input: t({ path: "", line: 5 }), expected: "-" },
   ]
   for (const c of cases) {
@@ -47,6 +67,7 @@ describe("threadLoc", () => {
 })
 
 describe("firstLine", () => {
+  // Pure string/byte logic — simple ASCII inputs make the intent obvious.
   const cases: Array<{ name: string; input: string; expected: string }> = [
     { name: "single line", input: "hello", expected: "hello" },
     { name: "multi line picks first non-empty", input: "\n\n  world  \nsecond", expected: "world" },
@@ -61,6 +82,8 @@ describe("firstLine", () => {
 })
 
 describe("clip", () => {
+  // Pure byte-boundary logic — simple ASCII/emoji inputs make the boundary
+  // conditions unambiguous.
   test("ascii short passes through", () => {
     expect(clip("abc", 10)).toBe("abc")
   })
@@ -82,10 +105,10 @@ describe("clip", () => {
 
 describe("threadMatchesAuthor", () => {
   const cases: Array<{ name: string; author: string; thread: Thread; expected: boolean }> = [
-    { name: "empty matches all", author: "", thread: t({ author: "alice" }), expected: true },
-    { name: "case-insensitive substring", author: "ALI", thread: t({ author: "alice" }), expected: true },
-    { name: "miss", author: "bob", thread: t({ author: "alice" }), expected: false },
-    { name: "lowercase substring", author: "lic", thread: t({ author: "alice" }), expected: true },
+    { name: "empty matches all", author: "", thread: t({ author: AUTHOR.copilot }), expected: true },
+    { name: "case-insensitive substring", author: "COPI", thread: t({ author: AUTHOR.copilot }), expected: true },
+    { name: "miss", author: "coderabbit", thread: t({ author: AUTHOR.copilot }), expected: false },
+    { name: "lowercase substring", author: "pull-request", thread: t({ author: AUTHOR.copilot }), expected: true },
   ]
   for (const c of cases) {
     test(c.name, () => {
@@ -97,12 +120,12 @@ describe("threadMatchesAuthor", () => {
 describe("filterThreads", () => {
   test("resolved excluded, author filter applied", () => {
     const threads = [
-      t({ id: "1", author: "alice", isResolved: false }),
-      t({ id: "2", author: "bob", isResolved: false }),
-      t({ id: "3", author: "alice", isResolved: true }),
+      t({ id: TID.alpha, author: AUTHOR.copilot, isResolved: false }),
+      t({ id: TID.beta, author: AUTHOR.coderabbit, isResolved: false }),
+      t({ id: TID.gamma, author: AUTHOR.copilot, isResolved: true }),
     ]
-    expect(filterThreads(threads, "ali").map((x) => x.id)).toEqual(["1"])
-    expect(filterThreads(threads, "").map((x) => x.id)).toEqual(["1", "2"])
+    expect(filterThreads(threads, "copilot").map((x) => x.id)).toEqual([TID.alpha])
+    expect(filterThreads(threads, "").map((x) => x.id)).toEqual([TID.alpha, TID.beta])
   })
 })
 
@@ -117,56 +140,108 @@ interface ListCase {
 
 describe("renderList (golden)", () => {
   const cases: ListCase[] = [
-    { name: "zero threads", golden: "list-empty", pr: 1, owner: "o", repo: "r", threads: [] },
+    { name: "zero threads", golden: "list-empty", pr: 137, owner: "acme", repo: "widgets", threads: [] },
     {
       name: "single thread with line",
       golden: "list-single",
-      pr: 42,
-      owner: "maros7",
-      repo: "omos",
-      threads: [t({ id: "PRRT_a", path: "src/x.ts", line: 10, author: "alice", body: "fix this" })],
+      pr: 137,
+      owner: "acme",
+      repo: "widgets",
+      threads: [
+        t({
+          id: TID.alpha,
+          path: "src/components/Button.tsx",
+          line: 47,
+          author: AUTHOR.copilot,
+          body: "Consider extracting this into a helper to avoid duplication across the call sites.",
+        }),
+      ],
     },
     {
       name: "thread without line",
       golden: "list-no-line",
-      pr: 7,
-      owner: "o",
-      repo: "r",
-      threads: [t({ id: "PRRT_b", path: "README.md", line: 0, author: "bob", body: "typo" })],
+      pr: 137,
+      owner: "acme",
+      repo: "widgets",
+      threads: [
+        t({
+          id: TID.beta,
+          path: "README.md",
+          line: 0,
+          author: AUTHOR.coderabbit,
+          body: "The npm install command in this section is missing the `--prefix` flag.",
+        }),
+      ],
     },
     {
       name: "thread with replies marker",
       golden: "list-replies",
-      pr: 7,
-      owner: "o",
-      repo: "r",
-      threads: [t({ id: "PRRT_c", path: "a.ts", line: 1, author: "x", body: "hmm", replies: 3 })],
+      pr: 137,
+      owner: "acme",
+      repo: "widgets",
+      threads: [
+        t({
+          id: TID.gamma,
+          path: "src/server/handler.go",
+          line: 215,
+          author: AUTHOR.copilot,
+          body: "This error is being swallowed — consider wrapping with fmt.Errorf to preserve context.",
+          replies: 3,
+        }),
+      ],
     },
     {
-      name: "multi-line body",
+      name: "multi-line body with suggestion block",
       golden: "list-multiline",
-      pr: 7,
-      owner: "o",
-      repo: "r",
-      threads: [t({ id: "PRRT_d", body: "line1\nline2\n\nline4   \n" })],
+      pr: 137,
+      owner: "acme",
+      repo: "widgets",
+      threads: [
+        t({
+          id: TID.delta,
+          body: [
+            "This loop could cause a performance issue with large inputs.",
+            "",
+            "```suggestion",
+            "const result = items.filter(isValid).map(transform);",
+            "```",
+            "",
+            "This reads more declaratively and avoids the intermediate push.",
+            "",
+          ].join("\n"),
+        }),
+      ],
     },
     {
       name: "empty body shows placeholder",
       golden: "list-empty-body",
-      pr: 7,
-      owner: "o",
-      repo: "r",
-      threads: [t({ id: "PRRT_e", body: "   \n\n  " })],
+      pr: 137,
+      owner: "acme",
+      repo: "widgets",
+      threads: [t({ id: TID.epsilon, body: "   \n\n  " })],
     },
     {
       name: "multiple threads",
       golden: "list-multiple",
-      pr: 99,
-      owner: "octo",
-      repo: "cat",
+      pr: 137,
+      owner: "acme",
+      repo: "widgets",
       threads: [
-        t({ id: "PRRT_1", path: "a.ts", line: 1, author: "alice", body: "one" }),
-        t({ id: "PRRT_2", path: "b.ts", line: 2, author: "bob", body: "two", replies: 1 }),
+        t({
+          id: TID.alpha,
+          path: "src/components/Button.tsx",
+          line: 47,
+          author: AUTHOR.copilot,
+          body: "Consider extracting this into a helper to avoid duplication across the call sites.",
+        }),
+        t({
+          id: TID.beta,
+          path: "src/utils/format.ts",
+          line: 89,
+          author: AUTHOR.coderabbit,
+          body: "Prefer `Intl.NumberFormat` over manual toLocaleString chaining for consistency.",
+          replies: 1,
+        }),
       ],
     },
   ]
@@ -179,16 +254,16 @@ describe("renderList (golden)", () => {
 
 describe("renderVerify (golden)", () => {
   const cases: ListCase[] = [
-    { name: "zero threads", golden: "verify-empty", pr: 1, owner: "o", repo: "r", threads: [] },
+    { name: "zero threads", golden: "verify-empty", pr: 137, owner: "acme", repo: "widgets", threads: [] },
     {
       name: "multiple threads",
       golden: "verify-multiple",
-      pr: 99,
-      owner: "octo",
-      repo: "cat",
+      pr: 137,
+      owner: "acme",
+      repo: "widgets",
       threads: [
-        t({ id: "PRRT_1", path: "a.ts", line: 1, body: "x" }),
-        t({ id: "PRRT_2", path: "b.ts", line: 0, body: "y" }),
+        t({ id: TID.alpha, path: "src/components/Button.tsx", line: 47, body: "x" }),
+        t({ id: TID.beta, path: "src/utils/format.ts", line: 0, body: "y" }),
       ],
     },
   ]
@@ -207,28 +282,40 @@ interface ApplyLineCase {
 
 describe("applyLine (golden)", () => {
   const cases: ApplyLineCase[] = [
-    { name: "ok", golden: "apply-line-ok", r: { threadId: "PRRT_a", reply: "ok", resolve: "ok" } },
+    { name: "ok", golden: "apply-line-ok", r: { threadId: TID.alpha, reply: "ok", resolve: "ok" } },
     {
       name: "reply-fail",
       golden: "apply-line-reply-fail",
       // Real production shape: replyToComment wraps as `reply: status N: msg`.
-      r: { threadId: "PRRT_a", reply: "fail", resolve: "skip", error: "reply: status 401: nope" },
+      // Body mirrors a real GitHub 401 JSON envelope.
+      r: {
+        threadId: TID.beta,
+        reply: "fail",
+        resolve: "skip",
+        error: 'reply: status 401: {"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}',
+      },
     },
     {
       name: "resolve-fail",
       golden: "apply-line-resolve-fail",
       // Real production shape: resolveThread wraps as `resolve: graphql: msg`.
-      r: { threadId: "PRRT_a", reply: "ok", resolve: "fail", error: "resolve: graphql: bad" },
+      // Message mirrors a real GitHub GraphQL "Resource not accessible" error.
+      r: {
+        threadId: TID.gamma,
+        reply: "ok",
+        resolve: "fail",
+        error: "resolve: graphql: Resource not accessible by integration",
+      },
     },
     {
       name: "skip-unknown",
       golden: "apply-line-skip-unknown",
-      r: { threadId: "PRRT_a", reply: "skip", resolve: "skip", error: "unknown thread" },
+      r: { threadId: TID.delta, reply: "skip", resolve: "skip", error: "unknown thread" },
     },
     {
       name: "skip-resolved",
       golden: "apply-line-skip-resolved",
-      r: { threadId: "PRRT_a", reply: "skip", resolve: "skip" },
+      r: { threadId: TID.epsilon, reply: "skip", resolve: "skip" },
     },
   ]
   for (const c of cases) {
@@ -242,12 +329,22 @@ describe("renderApply (golden)", () => {
   test("mixed report", () => {
     const rep: ApplyReport = {
       results: [
-        { threadId: "PRRT_1", reply: "ok", resolve: "ok" },
-        { threadId: "PRRT_2", reply: "skip", resolve: "skip", error: "unknown thread" },
+        { threadId: TID.alpha, reply: "ok", resolve: "ok" },
+        { threadId: TID.beta, reply: "skip", resolve: "skip", error: "unknown thread" },
         // Production-wrapped error prefixes (applyOne catches GithubClient's wraps):
-        { threadId: "PRRT_3", reply: "fail", resolve: "skip", error: "reply: status 500: boom" },
-        { threadId: "PRRT_4", reply: "ok", resolve: "fail", error: "resolve: graphql: bad" },
-        { threadId: "PRRT_5", reply: "skip", resolve: "skip" },
+        {
+          threadId: TID.gamma,
+          reply: "fail",
+          resolve: "skip",
+          error: 'reply: status 500: {"message":"Server Error"}',
+        },
+        {
+          threadId: TID.delta,
+          reply: "ok",
+          resolve: "fail",
+          error: "resolve: graphql: Resource not accessible by integration",
+        },
+        { threadId: TID.epsilon, reply: "skip", resolve: "skip" },
       ],
       applied: 1,
       requested: 5,

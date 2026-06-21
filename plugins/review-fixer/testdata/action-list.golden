@@ -1,5 +1,5 @@
-PR #42 maros7/omos: 2 unresolved thread(s)
-[1] PRRT_a  src/x.ts:10  (alice)
-    fix this
-[2] PRRT_b  src/y.ts  (bob)
-    typo
+PR #137 acme/widgets: 2 unresolved thread(s)
+[1] PRRT_kwDOABCD01EFGH2345  src/components/Button.tsx:47  (copilot-pull-request-reviewer)
+    Consider extracting this into a helper to avoid duplication across the call sites.
+[2] PRRT_kwDOIJLM06NOPQ7890  src/utils/format.ts  (coderabbit-ai)
+    The npm install command in this section is missing the `--prefix` flag.

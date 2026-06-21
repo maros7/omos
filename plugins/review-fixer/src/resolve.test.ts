@@ -117,6 +117,7 @@ type RepoCase =
     }
 
 describe("resolveRepo", () => {
+  const cwd = "/repo"
   const cases: RepoCase[] = [
     {
       name: "flag spec split",
@@ -159,12 +160,26 @@ describe("resolveRepo", () => {
   ]
   for (const c of cases) {
     test(c.name, async () => {
-      const deps = fakeDeps({}, c.spec)
+      // Verifies runCmd carries cwd for the gh repo view call.
+      const seenCwd: Array<string | undefined> = []
+      const deps: Deps = {
+        env: {},
+        fetch: () => Promise.reject(new Error("no fetch")),
+        runCmd: (args, opts) => {
+          seenCwd.push(opts?.cwd)
+          const key = args.join(" ")
+          const r = c.spec.responses[key]
+          if (!r) return Promise.resolve<RunResult>({ stdout: "", exitCode: 1 })
+          return Promise.resolve<RunResult>(r)
+        },
+      }
       if ("expectThrow" in c) {
-        await expectReject(resolveRepo(deps, c.flag), c.expectThrow)
+        await expectReject(resolveRepo(deps, cwd, c.flag), c.expectThrow)
         return
       }
-      expect(await resolveRepo(deps, c.flag)).toEqual(c.expected)
+      expect(await resolveRepo(deps, cwd, c.flag)).toEqual(c.expected)
+      // gh repo view call (if any) carried cwd.
+      for (const x of seenCwd) expect(x).toBe(cwd)
     })
   }
 })
