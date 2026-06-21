@@ -42,11 +42,6 @@ export function firstLine(s: string): string {
   return ""
 }
 
-/** Type guard: x is a non-zero byte. */
-function isByte(x: unknown): x is number {
-  return typeof x === "number"
-}
-
 /**
  * Clip a string to at most `n` UTF-8 bytes without splitting a multi-byte
  * rune: encode → slice → back up over any trailing continuation bytes → decode.
@@ -57,11 +52,10 @@ export function clip(s: string, n: number): string {
   if (enc.length <= n) return s
   let end = n
   // Walk back over UTF-8 continuation bytes (0x80–0xBF) so we don't slice
-  // mid-rune. Indexed access returns `number | undefined` under
-  // noUncheckedIndexedAccess — narrow with isByte.
+  // mid-rune.
   while (end > 0) {
     const b = enc[end]
-    if (!isByte(b) || (b & 0xc0) !== 0x80) break
+    if (b === undefined || (b & 0xc0) !== 0x80) break
     end--
   }
   return new TextDecoder().decode(enc.subarray(0, end))

@@ -27,6 +27,10 @@ export async function runAction(
   params: RunParams,
 ): Promise<{ output: string; ok: boolean }> {
   const { action, opts, cwd } = params
+  // Empty apply is a pure no-op — no auth, no git/gh, no fetch (matches Go CLI).
+  if (action === "apply" && (opts.items ?? []).length === 0) {
+    return { output: renderApply({ results: [], applied: 0, requested: 0, remaining: 0 }), ok: true }
+  }
   const token = await resolveToken(deps)
   // :ponytail: plugin-only adaptation — Go's CLI exposes this via `-api-base`,
   // but the opencode tool surface has no flags, so we fall back to env. Set
@@ -49,11 +53,8 @@ export async function runAction(
     return { output: renderVerify({ pr, owner, repo: name, threads: matched }), ok: matched.length === 0 }
   }
 
-  // action === "apply"
+  // action === "apply" (empty case handled above before auth)
   const items = opts.items ?? []
-  if (items.length === 0) {
-    return { output: renderApply({ results: [], applied: 0, requested: 0, remaining: 0 }), ok: true }
-  }
   const threads = await client.listThreads(owner, name, pr)
   const rep = await applyItems(client, { scope: { owner, repo: name, pr }, threads, author, items })
   const output = renderApply(rep)
