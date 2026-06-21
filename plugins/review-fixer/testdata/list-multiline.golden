@@ -1,0 +1,9 @@
+PR #137 acme/widgets: 1 unresolved thread(s)
+[1] PRRT_kwDOabcd07efgh8901  src/components/Button.tsx:47  (copilot-pull-request-reviewer)
+    This loop could cause a performance issue with large inputs.
+
+    ```suggestion
+    const result = items.filter(isValid).map(transform);
+    ```
+
+    This reads more declaratively and avoids the intermediate push.

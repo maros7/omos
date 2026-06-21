@@ -1,0 +1,5 @@
+PR #137 acme/widgets: 2 unresolved thread(s)
+[1] PRRT_kwDOABCD01EFGH2345  src/components/Button.tsx:47  (copilot-pull-request-reviewer)
+    Consider extracting this into a helper to avoid duplication across the call sites.
+[2] PRRT_kwDOIJLM06NOPQ7890  src/utils/format.ts:89  (coderabbit-ai)  +1
+    Prefer `Intl.NumberFormat` over manual toLocaleString chaining for consistency.
