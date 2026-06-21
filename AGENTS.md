@@ -4,7 +4,7 @@ omos is a monorepo of OpenCode plugins. Root Go module: `github.com/maros7/omos`
 
 ## Layout
 
-- `plugins/gogate/` — Go quality-gate plugin: Go binary (`cmd/` + `gogate/`), TS plugin (`src/`) published to npm; at runtime it auto-downloads + caches the prebuilt binary from the GitHub Release on first use (binary itself is not shipped via npm).
+- `plugins/gogate/` — Go quality-gate plugin: Go binary (`cmd/` + `gogate/`), TS plugin (`src/`) published to npm as `opencode-gogate`; at runtime it auto-downloads + caches the prebuilt binary from the GitHub Release on first use (binary itself is not shipped via npm); installs its `SKILL.md` to `~/.config/opencode/skills/gogate/` via a best-effort `postinstall` hook.
 - `plugins/review-fixer/` — pure-TS PR-review plugin handling threads from ANY reviewer: does all GitHub REST+GraphQL calls via `fetch` and emits compact text to minimise agent tokens; exposes list/apply/verify actions; ships raw `src/*.ts` to npm as `opencode-review-fixer`; installs its `SKILL.md` to `~/.config/opencode/skills/review-fixer/` via a best-effort `postinstall` hook.
 - `plugins/tripwire/` — TS cost/budget guardrail plugin; ships raw `src/*.ts`.
 - Bun workspace at root (`workspaces: plugins/*`).

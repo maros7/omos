@@ -1,5 +1,5 @@
 {
-  "name": "opencode-gogate-plugin",
+  "name": "opencode-gogate",
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
@@ -13,13 +13,16 @@
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "SKILL.md",
+    "install-skill.mjs"
   ],
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "postinstall": "node install-skill.mjs"
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.17.8"

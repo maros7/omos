@@ -6,7 +6,7 @@
       "name": "omos",
     },
     "plugins/gogate": {
-      "name": "opencode-gogate-plugin",
+      "name": "opencode-gogate",
       "version": "0.1.0",
       "dependencies": {
         "@opencode-ai/plugin": "1.17.8",
@@ -34,7 +34,7 @@
     },
     "plugins/tripwire": {
       "name": "opencode-tripwire",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@opencode-ai/plugin": "1.17.8",
         "@types/node": "26.0.0",
@@ -222,7 +222,7 @@
 
     "node-gyp-build-optional-packages": ["node-gyp-build-optional-packages@5.2.2", "", { "dependencies": { "detect-libc": "^2.0.1" }, "bin": { "node-gyp-build-optional-packages": "bin.js", "node-gyp-build-optional-packages-optional": "optional.js", "node-gyp-build-optional-packages-test": "build-test.js" } }, "sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw=="],
 
-    "opencode-gogate-plugin": ["opencode-gogate-plugin@workspace:plugins/gogate"],
+    "opencode-gogate": ["opencode-gogate@workspace:plugins/gogate"],
 
     "opencode-review-fixer": ["opencode-review-fixer@workspace:plugins/review-fixer"],
 

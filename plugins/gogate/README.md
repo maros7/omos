@@ -187,8 +187,12 @@ golangci-lint, so `-short` skips them and they skip themselves when it isn't ins
 Prebuilt binaries are built by **GoReleaser** (`.goreleaser.yaml`) for darwin/linux/windows
 × amd64/arm64 (`CGO_ENABLED=0`, static). Pushing a `v*` tag runs
 `.github/workflows/release.yml`, which uploads the archives plus `checksums.txt` to a
-**GitHub Release**. There is **no npm package** — the OpenCode plugin is the only
-distribution path.
+**GitHub Release**. The Go binary itself is not shipped via npm — the TS plugin
+(`opencode-gogate`) is published to npm, and at runtime it auto-downloads +
+caches the matching binary from the GitHub Release on first use. A best-effort
+`postinstall` hook also installs the bundled `SKILL.md` to
+`~/.config/opencode/skills/gogate/` so the model prefers `gogate` over running
+`go build`/`go test`/`golangci-lint` separately.
 
 On first use the plugin downloads the binary matching your OS/arch from the **latest**
 GitHub Release, verifies it against `checksums.txt` (SHA-256), and caches it under
