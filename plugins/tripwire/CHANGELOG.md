@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.1](https://github.com/maros7/omos/compare/opencode-tripwire-v0.1.0...opencode-tripwire-v0.1.1) (2026-06-21)
+
+
+### Features
+
+* **lint:** extend ESLint + typescript-eslint to gogate and tripwire ([#29](https://github.com/maros7/omos/issues/29)) ([eb47f9b](https://github.com/maros7/omos/commit/eb47f9b048134691b0d9a7a9484c9df7feb293b8))
+
+
+### Bug Fixes
+
+* **tripwire:** reconcile version drift to 0.1.0 ([#18](https://github.com/maros7/omos/issues/18)) ([13c0595](https://github.com/maros7/omos/commit/13c05950aa6e2867f25d0f4aeac5f59668ff40fa))
+* **tripwire:** TS hardening (eviction, evaluate, jsonc, merge) ([#21](https://github.com/maros7/omos/issues/21)) ([8cd9754](https://github.com/maros7/omos/commit/8cd9754c974c8c41052a9a80e70159cabea8c6cf))
+
 ## 0.1.0 (2026-06-20)
 
 
