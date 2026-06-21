@@ -11,9 +11,15 @@ name: CI plugins
 on:
   push:
     branches: [main]
+    paths:
+      - "plugins/**"
+      - ".github/workflows/ci-plugins.yml"
+      - "package.json"
+      - "bun.lock"
   # No path filter on pull_request: these checks are REQUIRED by branch
-  # protection, so they must always report a status on every PR.
+  # protection, so they must always report a status on every PR targeting main.
   pull_request:
+    branches: [main]
 
 # Deny-by-default at the top level. This uses `pull_request` (NOT
 # `pull_request_target`), so PRs from forks run with a read-only GITHUB_TOKEN
