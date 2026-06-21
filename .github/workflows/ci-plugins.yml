@@ -1,0 +1,264 @@
+name: CI plugins
+
+# Single matrix workflow for every TS plugin under `plugins/*/`. Plugin
+# directories are auto-discovered from the presence of `tsconfig.json`, so
+# adding or removing a plugin requires ZERO edits to this file — just add or
+# remove the `plugins/<name>/` directory.
+#
+# Each plugin's matrix cells (`<plugin> Typecheck`, `<plugin> Lint`,
+# `<plugin> TS`) are aggregated by the static `Plugins gate` job. Branch
+# protection requires only `Go gate` + `Plugins gate`, so adding/removing a
+# plugin needs ZERO edits here AND zero branch-protection changes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/**"
+      - ".github/workflows/ci-plugins.yml"
+      - "package.json"
+      - "bun.lock"
+  # No path filter on pull_request: these checks are REQUIRED by branch
+  # protection, so they must always report a status on every PR targeting main.
+  pull_request:
+    branches: [main]
+
+# Deny-by-default at the top level. This uses `pull_request` (NOT
+# `pull_request_target`), so PRs from forks run with a read-only GITHUB_TOKEN
+# and no access to repo secrets — do not change that trigger.
+permissions: {}
+
+# Cancel superseded runs on the same ref (e.g. rapid PR pushes).
+concurrency:
+  group: ci-plugins-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    name: Discover plugins
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      plugins: ${{ steps.list.outputs.plugins }}
+    steps:
+      # First step: installs an egress firewall on the runner so a compromised
+      # dependency cannot phone home / exfiltrate during checkout. The discover
+      # job only needs git over GitHub.
+      - name: Harden the runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          disable-sudo: true
+          disable-file-monitoring: false
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Don't leave the auth token in .git/config where dependency code could read it.
+          persist-credentials: false
+
+      # Find every `plugins/<name>/tsconfig.json` (exactly depth 2 from repo
+      # root) and emit a JSON array of the `<name>` segments for the downstream
+      # matrix. Using the `tsconfig.json` marker (not `package.json`) ensures
+      # only real TS plugins are swept. `jq -R . | jq -sc .` turns one-per-line
+      # strings into a compact JSON array.
+      #
+      # PER-PLUGIN CONTRACT: every discovered plugin MUST define `typecheck`,
+      # `lint`, and `test` scripts in its package.json — otherwise its matrix
+      # cell fails and `Plugins gate` goes red.
+      - name: List plugin directories
+        id: list
+        run: |
+          set -euo pipefail
+          plugins=$(find plugins -mindepth 2 -maxdepth 2 -name tsconfig.json -exec dirname {} \; | sed 's|^plugins/||' | sort | jq -R . | jq -sc .)
+          echo "discovered plugins: $plugins"
+          if [ "$plugins" = "[]" ]; then
+            echo "error: no plugins discovered (no plugins/*/tsconfig.json found)" >&2
+            exit 1
+          fi
+          echo "plugins=$plugins" >> "$GITHUB_OUTPUT"
+
+  typecheck:
+    name: ${{ matrix.plugin }} Typecheck
+    needs: discover
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    steps:
+      # Must be the first step: installs an egress firewall on the runner so a
+      # compromised dependency cannot phone home / exfiltrate during install.
+      - name: Harden the runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          disable-sudo: true
+          disable-file-monitoring: false
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            registry.npmjs.org:443
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Don't leave the auth token in .git/config where dependency code could read it.
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # Pinned (not "latest") so the toolchain itself is reproducible.
+          bun-version: 1.3.14
+
+      # In a bun workspace, install happens once at the repo root.
+      # --frozen-lockfile: fail if bun.lock would change (lockfile + integrity hashes are the source of truth).
+      # --ignore-scripts: block arbitrary install/postinstall code execution from dependencies.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: plugins/${{ matrix.plugin }}
+
+  lint:
+    name: ${{ matrix.plugin }} Lint
+    needs: discover
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    steps:
+      # Must be the first step: installs an egress firewall on the runner so a
+      # compromised dependency cannot phone home / exfiltrate during install.
+      - name: Harden the runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          disable-sudo: true
+          disable-file-monitoring: false
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            registry.npmjs.org:443
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Don't leave the auth token in .git/config where dependency code could read it.
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # Pinned (not "latest") so the toolchain itself is reproducible.
+          bun-version: 1.3.14
+
+      # In a bun workspace, install happens once at the repo root.
+      # --frozen-lockfile: fail if bun.lock would change (lockfile + integrity hashes are the source of truth).
+      # --ignore-scripts: block arbitrary install/postinstall code execution from dependencies.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Lint
+        run: bun run lint
+        working-directory: plugins/${{ matrix.plugin }}
+
+  test:
+    name: ${{ matrix.plugin }} TS
+    needs: discover
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    steps:
+      # Installs an egress firewall so a compromised dependency cannot phone
+      # home / exfiltrate during install. The TS layer needs npm + GitHub +
+      # codecov for coverage upload.
+      - name: Harden the runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          disable-sudo: true
+          disable-file-monitoring: false
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            registry.npmjs.org:443
+            cli.codecov.io:443
+            api.codecov.io:443
+            ingest.codecov.io:443
+            codecov.io:443
+            storage.googleapis.com:443
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # Pinned (not "latest") so the toolchain itself is reproducible.
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Test
+        run: bun test --coverage --coverage-reporter=lcov
+        working-directory: plugins/${{ matrix.plugin }}
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        continue-on-error: true
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: plugins/${{ matrix.plugin }}/coverage/lcov.info
+          flags: ${{ matrix.plugin }}-ts
+          fail_ci_if_error: false
+
+  # Static aggregator over the auto-discovered per-plugin matrix. This is the
+  # single required branch-protection context (alongside `Go gate`), so adding
+  # or removing a plugin never changes the required checks. Needs no checkout or
+  # network, hence `permissions: {}` and no harden-runner step.
+  gate:
+    name: Plugins gate
+    needs: [discover, typecheck, lint, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Verify all plugin checks passed
+        run: |
+          set -euo pipefail
+          [ "${{ needs.discover.result }}" = success ] || { echo "discover failed: ${{ needs.discover.result }}"; exit 1; }
+          for r in "${{ needs.typecheck.result }}" "${{ needs.lint.result }}" "${{ needs.test.result }}"; do
+            [ "$r" = success ] || { echo "a matrix job did not succeed: $r"; exit 1; }
+          done
+          echo "all plugin checks passed"
