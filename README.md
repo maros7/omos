@@ -44,9 +44,12 @@ bun install                 # install all workspace deps
 # gogate (Go + TS)
 go build ./... && go test ./... && golangci-lint run ./...
 bun test --cwd plugins/gogate
+bun run --cwd plugins/gogate typecheck
+bun run --cwd plugins/gogate lint
 
 # tripwire (TS)
 bun run --cwd plugins/tripwire typecheck
+bun run --cwd plugins/tripwire lint
 
 # review-fixer (TS)
 bun test --cwd plugins/review-fixer

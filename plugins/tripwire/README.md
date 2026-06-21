@@ -137,6 +137,13 @@ Cost is reported **after** a step completes, so a ceiling stops the
 **next** step — it can't pre-empt an in-flight one. This is adequate for
 runaway-session prevention, which is the goal.
 
+## Development
+
+```sh
+bun run typecheck        # tsc --noEmit
+bun run lint             # eslint
+```
+
 ## License
 
 MIT
