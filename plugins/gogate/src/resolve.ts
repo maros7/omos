@@ -5,6 +5,12 @@ import { join, dirname } from "node:path"
 
 const REPO = "maros7/omos"
 
+/**
+ * Minimal fetch signature. We don't need preconnect/keepalive/etc — just the
+ * call shape — so tests can supply a plain async function without `as` casts.
+ */
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
 // ResolveDeps is the full injection seam: every side effect resolveBinary performs
 // (env, platform probing, filesystem, network, hashing, archive extraction) goes
 // through here so tests can drive 100% of the branches with zero real I/O.
@@ -18,7 +24,7 @@ export interface ResolveDeps {
   writeFile(p: string, data: Uint8Array): void
   chmod(p: string, mode: number): void
   removeFile(p: string): void
-  fetch: typeof fetch
+  fetch: FetchLike
   sha256(data: Uint8Array): string
   extract(archivePath: string, destDir: string, isZip: boolean): Promise<void>
 }
@@ -71,9 +77,11 @@ function binaryName(platform: string): string {
 }
 
 function cacheDir(deps: ResolveDeps): string {
-  // `||` (not `??`): an EMPTY XDG_CACHE_HOME must fall back to the default, otherwise
-  // the cache root becomes "" and the cached binary lands at a relative "gogate/bin/..."
-  // in the CWD. Only a real (non-empty) value is honored.
+  // An EMPTY XDG_CACHE_HOME must fall back to the default, otherwise the cache
+  // root becomes "" and the cached binary lands at a relative "gogate/bin/..."
+  // in the CWD. Only a real (non-empty) value is honored. (`||` not `??`: an
+  // empty string must trigger the fallback, and `??` would let it through.)
+  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty XDG_CACHE_HOME must fall back to default; ?? would honor "" as a valid root.
   const root = deps.env.XDG_CACHE_HOME || join(deps.homedir(), ".cache")
   return join(root, "gogate")
 }
@@ -221,8 +229,40 @@ async function fetchRelease(deps: ResolveDeps): Promise<Release> {
   if (!res.ok) {
     throw new Error(`GitHub release lookup failed (${res.status}) for ${url}`)
   }
-  const json = (await res.json()) as { tag_name?: string; assets?: ReleaseAsset[] }
-  return { tag: json.tag_name ?? pinned ?? "latest", assets: json.assets ?? [] }
+  // The GitHub release API returns a large envelope; we only consume two
+  // optional fields. parseReleaseEnvelope narrows the unknown JSON with type
+  // guards (no `as`) so we never smuggle an unvalidated shape past the parser.
+  const json: unknown = await res.json()
+  const envelope = parseReleaseEnvelope(json)
+  return { tag: envelope.tag_name ?? pinned ?? "latest", assets: envelope.assets ?? [] }
+}
+
+/** GitHub release envelope shape we read in fetchRelease. */
+type ReleaseEnvelope = { tag_name?: string; assets?: ReleaseAsset[] }
+
+/** Type guard: x is a record (non-null, non-array object). */
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x)
+}
+
+/** Type guard: x is a GitHub release envelope (or a subset of it). */
+function parseReleaseEnvelope(x: unknown): ReleaseEnvelope {
+  if (!isRecord(x)) return {}
+  const tag_name = typeof x.tag_name === "string" ? x.tag_name : undefined
+  let assets: ReleaseAsset[] | undefined
+  if (Array.isArray(x.assets)) {
+    assets = []
+    for (const a of x.assets) {
+      if (isReleaseAsset(a)) assets.push(a)
+    }
+  }
+  return { tag_name, assets }
+}
+
+/** Type guard: x is a { name, browser_download_url } release asset. */
+function isReleaseAsset(x: unknown): x is ReleaseAsset {
+  if (!isRecord(x)) return false
+  return typeof x.name === "string" && typeof x.browser_download_url === "string"
 }
 
 async function fetchBytes(deps: ResolveDeps, url: string, what: string): Promise<Uint8Array> {

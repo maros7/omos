@@ -18,7 +18,8 @@
     "README.md"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "keywords": [
     "opencode",
@@ -35,6 +36,8 @@
   "devDependencies": {
     "@opencode-ai/plugin": "1.17.8",
     "@types/node": "26.0.0",
-    "typescript": "6.0.3"
+    "eslint": "10.5.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.61.1"
   }
 }

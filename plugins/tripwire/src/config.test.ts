@@ -28,7 +28,7 @@ describe("parseJsonc", () => {
   // Trailing-comma stripping — the regression this guards against is that the
   // stripper only skipped whitespace, not comments, between the comma and the
   // closing bracket. Table-driven so each combination is explicit.
-  test.each([
+  const cases: Array<[name: string, input: string, expected: unknown]> = [
     ["plain trailing comma (object)", `{"a":1,}`, { a: 1 }],
     ["plain trailing comma (array)", `[1,2,3,]`, [1, 2, 3]],
     ["trailing comma + line comment", `{"a":1, // trailing\n}`, { a: 1 }],
@@ -41,9 +41,12 @@ describe("parseJsonc", () => {
     ["nested array trailing comma + block comment", `{"arr":[1,2,/* c */]}`, { arr: [1, 2] }],
     ["deeply nested with multiple trailing commas", `{"a":[1,{"b":[2,],},]}`, { a: [1, { b: [2] }] }],
     ["keeps non-trailing comma after line comment", `{"a":1,\n"b":2}`, { a: 1, b: 2 }],
-  ])("%s", (_name, input, expected) => {
-    expect(parseJsonc(input as string)).toEqual(expected)
-  })
+  ]
+  for (const [name, input, expected] of cases) {
+    test(name, () => {
+      expect(parseJsonc(input)).toEqual(expected)
+    })
+  }
 })
 
 describe("merge", () => {
@@ -70,9 +73,9 @@ describe("merge", () => {
     // Locking in the documented contract: a user CANNOT null-out a nested
     // config block. merge recurses with over[k]=null, which early-returns base.
     const base = { budgets: { cost: { warn: 5, hard: 12 } }, onHard: "abort" as const }
-    const merged = merge(base, { budgets: null } as any)
+    const merged = merge(base, { budgets: null })
     expect(merged).toEqual(base) // budgets subtree is untouched, NOT deleted
-    expect((merged as any).budgets).toEqual({ cost: { warn: 5, hard: 12 } })
+    expect(merged.budgets).toEqual({ cost: { warn: 5, hard: 12 } })
   })
 
   test("scalar 0 / empty string / false ARE applied (not treated as null)", () => {

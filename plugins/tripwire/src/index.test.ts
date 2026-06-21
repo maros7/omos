@@ -114,6 +114,48 @@ describe("evaluate", () => {
   })
 })
 
+/**
+ * Test-only view of the plugin's Hooks return: we only drive `event`, and we
+ * widen its argument type so tests can synthesize the custom
+ * `session.next.step.ended` event the SDK does not (yet) type. The runtime
+ * shape is identical; this is purely a static-type widening for test ergonomics.
+ */
+type TestHooks = {
+  event: (input: {
+    event: {
+      type?: string
+      properties?: {
+        sessionID?: string
+        info?: { id?: string }
+        cost?: number
+        file?: string
+      }
+    }
+  }) => Promise<void>
+}
+
+/**
+ * Minimal client shape TripwirePlugin actually touches in tests: just
+ * `session.abort`. Building it under this alias lets us pass it to
+ * TripwirePlugin without an `as any` on the full PluginInput.
+ */
+type TestClient = { session: { abort: (req: { path: { id: string } }) => Promise<void> } }
+
+/**
+ * Build the plugin and return its hooks as a TestHooks view. The single
+ * eslint-disable below narrows the SDK's Hooks (which types `event` against
+ * the closed Event union) to our test-only TestHooks shape — without it, the
+ * custom `session.next.step.ended` test events would not typecheck.
+ */
+async function buildPlugin(client: TestClient): Promise<TestHooks> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test-only narrowing of Hooks to TestHooks (widened event-arg type); the runtime hooks object satisfies TestHooks structurally, but the SDK's Hooks types event against the closed Event union which can't describe our custom test events.
+  return (await TripwirePlugin(
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test-only partial PluginInput (the plugin only reads `client` and `directory` at runtime; PluginInput has many more fields the orchestrator populates in production).
+    { client, directory: "/tmp/tripwire-test-nonexistent" } as never,
+    { budgets: { cost: { hard: 10 } }, onHard: "abort", log: { enabled: false } },
+  )) as TestHooks
+}
+
 describe("TripwirePlugin session eviction", () => {
   /**
    * Drives the plugin via its returned `event` hook with a mock client, and
@@ -123,17 +165,14 @@ describe("TripwirePlugin session eviction", () => {
    */
   test("session.deleted evicts session state (abort fires again after re-crossing)", async () => {
     const aborted: string[] = []
-    const client = {
+    const hooks = await buildPlugin({
       session: {
-        abort: async (req: { path: { id: string } }) => {
+        abort: (req) => {
           aborted.push(req.path.id)
+          return Promise.resolve()
         },
       },
-    }
-    const hooks = (await TripwirePlugin(
-      { client: client as any, directory: "/tmp/tripwire-test-nonexistent" } as any,
-      { budgets: { cost: { hard: 10 } }, onHard: "abort", log: { enabled: false } },
-    )) as any
+    })
 
     // 1. Push cost past the hard limit -> first abort.
     await hooks.event({
@@ -164,11 +203,14 @@ describe("TripwirePlugin session eviction", () => {
 
   test("session.deleted accepts the v1 shape (info.id only)", async () => {
     const aborted: string[] = []
-    const client = { session: { abort: async (req: { path: { id: string } }) => aborted.push(req.path.id) } }
-    const hooks = (await TripwirePlugin(
-      { client: client as any, directory: "/tmp/tripwire-test-nonexistent" } as any,
-      { budgets: { cost: { hard: 10 } }, onHard: "abort", log: { enabled: false } },
-    )) as any
+    const hooks = await buildPlugin({
+      session: {
+        abort: (req) => {
+          aborted.push(req.path.id)
+          return Promise.resolve()
+        },
+      },
+    })
 
     await hooks.event({
       event: { type: "session.next.step.ended", properties: { sessionID: "s2", cost: 15 } },
@@ -188,11 +230,14 @@ describe("TripwirePlugin session eviction", () => {
 
   test("unrelated events do not trigger eviction or abort", async () => {
     const aborted: string[] = []
-    const client = { session: { abort: async (req: { path: { id: string } }) => aborted.push(req.path.id) } }
-    const hooks = (await TripwirePlugin(
-      { client: client as any, directory: "/tmp/tripwire-test-nonexistent" } as any,
-      { budgets: { cost: { hard: 10 } }, onHard: "abort", log: { enabled: false } },
-    )) as any
+    const hooks = await buildPlugin({
+      session: {
+        abort: (req) => {
+          aborted.push(req.path.id)
+          return Promise.resolve()
+        },
+      },
+    })
 
     await hooks.event({
       event: { type: "session.next.step.ended", properties: { sessionID: "s3", cost: 15 } },

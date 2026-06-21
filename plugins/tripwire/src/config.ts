@@ -141,16 +141,46 @@ export function parseJsonc(text: string): unknown {
   return JSON.parse(out)
 }
 
+/** Type guard: x is a non-null, non-array object (a JSON object). */
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return x !== null && typeof x === "object" && !Array.isArray(x)
+}
+
+/**
+ * Narrow a parsed JSONC value to a Partial<TripwireConfig>. We don't ship a
+ * schema validator, so the structural check is "did JSON.parse produce an
+ * object?"; the typed merge downstream tolerates unknown keys and missing
+ * fields (treats them as "don't override"). Anything that *is* present flows
+ * through merge() and gets type-checked at the consumer.
+ */
+function toPartialConfig(x: unknown): Partial<TripwireConfig> {
+  return isRecord(x) ? { ...x } : {}
+}
+
 function readConfigFile(path: string): Partial<TripwireConfig> | null {
   for (const ext of [".jsonc", ".json"]) {
     try {
-      return parseJsonc(readFileSync(path + ext, "utf8")) as Partial<TripwireConfig>
-    } catch (e: any) {
-      if (e?.code === "ENOENT") continue
-      console.warn(`[opencode-tripwire] ignoring invalid config ${path}${ext}: ${e?.message}`)
+      return toPartialConfig(parseJsonc(readFileSync(path + ext, "utf8")))
+    } catch (e: unknown) {
+      // ENOENT → try the next extension; anything else → warn and skip.
+      if (readErrorCode(e) === "ENOENT") continue
+      console.warn(`[opencode-tripwire] ignoring invalid config ${path}${ext}: ${errorMessage(e)}`)
     }
   }
   return null
+}
+
+/** Read `.code` off an unknown caught value (Node sets it on fs errors). No `as`. */
+function readErrorCode(e: unknown): string | undefined {
+  if (typeof e === "object" && e !== null && "code" in e) {
+    return typeof e.code === "string" ? e.code : undefined
+  }
+  return undefined
+}
+
+/** Render an unknown caught value as a message string (Error → message; else String). */
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
 }
 
 /**
@@ -166,32 +196,58 @@ function readConfigFile(path: string): Partial<TripwireConfig> | null {
  * explicitly set its tiers to 0 (or, for programmatic PluginOptions,
  * `undefined`) — do not rely on `null` or omission to clear it.
  */
-export function merge<T>(base: T, over: any): T {
+export function merge<T>(base: T, over: unknown): T {
   if (over == null) return base
-  if (Array.isArray(over) || typeof over !== "object") return over as T
-  const out: any = { ...base }
+  // Primitives and arrays replace wholesale; reconciling an arbitrary JSON
+  // value with a static generic T needs runtime validation we deliberately
+  // don't ship (zero-dep plugin), so we trust the caller's T at this branch —
+  // same envelope-trust pattern review-fixer uses for `parsed.data as T`.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- over is JSON-derived data we trust to be T at this branch (callers pass Partial<T> shapes); narrowing arbitrary unknown to a generic T requires runtime validation this zero-dep plugin does not ship.
+  if (!isRecord(over) || !isRecord(base)) return over as T
+  const out: Record<string, unknown> = { ...base }
   for (const k of Object.keys(over)) {
-    const b = (base as any)?.[k]
-    out[k] = b && typeof b === "object" && !Array.isArray(b) ? merge(b, over[k]) : over[k]
+    const overVal: unknown = over[k]
+    const baseVal: unknown = base[k]
+    out[k] = isRecord(baseVal) ? merge(baseVal, overVal) : overVal
   }
-  return out
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- out started as {...base} and only had existing keys overwritten with JSON values from `over`; structurally compatible with T per merge's documented contract.
+  return out as T
 }
 
-function envOverrides(): Partial<TripwireConfig> {
+/** Keys of the budgets block — used to type env-var → metric mapping safely. */
+type BudgetKey = keyof TripwireConfig["budgets"]
+
+/**
+ * Build the env-var override layer. Returned shape is a plain record (not
+ * Partial<TripwireConfig>) because Partial<TripwireConfig>.budgets requires
+ * every metric key — but env vars only ever set a subset. merge() takes
+ * `over: unknown` so the record flows straight through.
+ */
+function envOverrides(): Record<string, unknown> {
   const e = process.env
   const num = (v?: string) => (v != null && v !== "" && !isNaN(+v) ? +v : undefined)
-  const o: any = { budgets: {} }
+  const o: {
+    enabled?: boolean
+    onHard?: "abort" | "block" | "inject" | "off"
+    log?: Partial<{ enabled: boolean; path: string; every: number }>
+    budgets: Partial<Record<BudgetKey, Budget>>
+  } = { budgets: {} }
+
   if (e.OPENCODE_TRIPWIRE_DISABLED === "1" || e.OPENCODE_TRIPWIRE === "off") o.enabled = false
+
+  const logPatch: { enabled?: boolean; path?: string; every?: number } = {}
   if (e.OPENCODE_TRIPWIRE_LOG != null) {
     const falsy = new Set(["0", "false", "off", "no", ""])
-    o.log = { ...(o.log ?? {}), enabled: !falsy.has(e.OPENCODE_TRIPWIRE_LOG.toLowerCase()) }
+    logPatch.enabled = !falsy.has(e.OPENCODE_TRIPWIRE_LOG.toLowerCase())
   }
-  if (e.OPENCODE_TRIPWIRE_LOG_PATH) o.log = { ...(o.log ?? {}), path: e.OPENCODE_TRIPWIRE_LOG_PATH }
+  if (e.OPENCODE_TRIPWIRE_LOG_PATH) logPatch.path = e.OPENCODE_TRIPWIRE_LOG_PATH
   if (e.OPENCODE_TRIPWIRE_LOG_EVERY) {
     const n = parseInt(e.OPENCODE_TRIPWIRE_LOG_EVERY, 10)
-    if (!isNaN(n)) o.log = { ...(o.log ?? {}), every: n }
+    if (!isNaN(n)) logPatch.every = n
   }
-  const map: Record<string, string> = {
+  if (Object.keys(logPatch).length > 0) o.log = logPatch
+
+  const map: Record<string, BudgetKey> = {
     OPENCODE_TRIPWIRE_COST_HARD: "cost",
     OPENCODE_TRIPWIRE_STEPS_HARD: "steps",
     OPENCODE_TRIPWIRE_EDITS_HARD: "edits",
@@ -205,7 +261,7 @@ function envOverrides(): Partial<TripwireConfig> {
   }
   if (e.OPENCODE_TRIPWIRE_ON_HARD) {
     const v = e.OPENCODE_TRIPWIRE_ON_HARD
-    if (["abort", "block", "inject", "off"].includes(v)) o.onHard = v
+    if (v === "abort" || v === "block" || v === "inject" || v === "off") o.onHard = v
     else console.warn(`[opencode-tripwire] ignoring invalid OPENCODE_TRIPWIRE_ON_HARD: ${v}`)
   }
   return o
