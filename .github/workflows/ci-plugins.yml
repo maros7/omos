@@ -26,6 +26,11 @@ on:
 # and no access to repo secrets — do not change that trigger.
 permissions: {}
 
+# Cancel superseded runs on the same ref (e.g. rapid PR pushes).
+concurrency:
+  group: ci-plugins-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   discover:
     name: Discover plugins
@@ -63,7 +68,7 @@ jobs:
       - name: List plugin directories
         id: list
         run: |
-          plugins=$(find plugins -maxdepth 2 -name package.json -exec dirname {} \; | sed 's|plugins/||' | sort | jq -R . | jq -sc .)
+          plugins=$(find plugins -maxdepth 2 -name package.json -exec dirname {} \; | sed 's|^plugins/||' | sort | jq -R . | jq -sc .)
           echo "plugins=$plugins" >> "$GITHUB_OUTPUT"
 
   typecheck:

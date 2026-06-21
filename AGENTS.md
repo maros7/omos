@@ -53,7 +53,7 @@ Enforced by ESLint + typescript-eslint (all three TS plugins).
 ## PR flow
 
 - No direct pushes to `main`; branch + PR + squash-merge.
-- Required checks must pass: Go gate, plus per-plugin TS Typecheck/Lint/test jobs. TS gates run from a single `ci-plugins.yml` matrix that auto-discovers `plugins/*/` — adding a plugin dir requires no CI edits.
+- Required checks must pass: `Go gate`, plus per-plugin `<plugin> Typecheck`, `<plugin> Lint`, `<plugin> TS` jobs (one `ci-plugins.yml` matrix auto-discovers `plugins/*/` — adding a plugin dir requires no CI edits).
 
 ## Releases
 
