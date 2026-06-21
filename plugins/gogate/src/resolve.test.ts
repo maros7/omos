@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
-import { resolveBinary, defaultDeps, type ResolveDeps } from "./resolve"
+import { resolveBinary, defaultDeps, type ResolveDeps, type FetchLike } from "./resolve"
 
-// A fake HTTP response for the injected fetch.
+// A fake HTTP response for the injected fetch. Real Response objects (no `as`
+// casts) — Response.ok is derived from `status`, so a non-2xx status produces
+// `ok === false` automatically, matching what real fetch returns.
 function makeResponse(opts: {
   ok?: boolean
   status?: number
@@ -12,17 +14,35 @@ function makeResponse(opts: {
   text?: string
   bytes?: Uint8Array
 }): Response {
-  return {
-    ok: opts.ok ?? true,
-    status: opts.status ?? 200,
-    json: async () => opts.json,
-    text: async () => opts.text ?? "",
-    arrayBuffer: async () => (opts.bytes ?? new Uint8Array()).buffer,
-  } as unknown as Response
+  // Map the legacy `ok: false` flag to a 5xx so .ok derives correctly; if both
+  // are supplied, status wins.
+  const status = opts.status ?? (opts.ok === false ? 503 : 200)
+  if (opts.bytes) return new Response(opts.bytes, { status })
+  if (opts.text !== undefined) return new Response(opts.text, { status })
+  if (opts.json !== undefined) {
+    return new Response(JSON.stringify(opts.json), {
+      status,
+      headers: { "content-type": "application/json" },
+    })
+  }
+  return new Response(null, { status })
 }
 
 const ARCHIVE_URL = "https://dl.example/archive"
 const CHECKSUMS_URL = "https://dl.example/checksums"
+
+/** Resolve `await expect(p).rejects.toThrow(re)` without an `await` on bun's
+ *  non-Promise `.rejects` matcher (which trips `await-thenable`). */
+async function expectReject(p: Promise<unknown>, re: RegExp): Promise<void> {
+  let err: Error | undefined
+  try {
+    await p
+  } catch (e) {
+    err = e instanceof Error ? e : new Error(String(e))
+  }
+  if (!err) throw new Error(`expected promise to reject matching ${re.toString()}, but it resolved`)
+  expect(err.message).toMatch(re)
+}
 
 // makeDeps builds a fully-faked ResolveDeps; pass overrides per test. `calls` is a
 // unified, ordered log of side effects so tests can assert e.g. the marker is written
@@ -58,15 +78,24 @@ function makeDeps(overrides: Partial<ResolveDeps> = {}): ResolveDeps & {
       calls.push(`removeFile:${p}`)
       removes.push(p)
     },
-    fetch: (async () => makeResponse({ json: {} })) as unknown as typeof fetch,
+    fetch: (() => Promise.resolve(makeResponse({ json: {} }))) satisfies FetchLike,
     sha256: () => "deadbeef",
-    extract: async (archivePath, destDir, isZip) => {
+    extract: (archivePath, destDir, isZip) => {
       calls.push(`extract:${destDir}`)
       extracts.push({ archivePath, destDir, isZip })
+      return Promise.resolve()
     },
     ...overrides,
   }
   return Object.assign(base, { writes, chmods, extracts, removes, calls })
+}
+
+// inputToURL flattens fetch's `string | URL | Request` first arg to a URL string
+// without an `as` cast (each branch already returns a string-typed value).
+function inputToURL(input: string | URL | Request): string {
+  if (typeof input === "string") return input
+  if (input instanceof URL) return input.href
+  return input.url
 }
 
 // A fetch router for the cold-install happy path: release JSON, then the archive
@@ -76,21 +105,22 @@ function installFetch(opts: {
   digest: string
   tagName?: string
   assets?: Array<{ name: string; browser_download_url: string }>
-}): typeof fetch {
+}): FetchLike {
   const assets = opts.assets ?? [
     { name: opts.assetName, browser_download_url: ARCHIVE_URL },
     { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
   ]
-  return (async (url: string) => {
+  return (input) => {
+    const url = inputToURL(input)
     if (url.includes("api.github.com")) {
-      return makeResponse({ json: { tag_name: opts.tagName ?? "v1.2.3", assets } })
+      return Promise.resolve(makeResponse({ json: { tag_name: opts.tagName ?? "v1.2.3", assets } }))
     }
-    if (url === ARCHIVE_URL) return makeResponse({ bytes: new Uint8Array([1, 2, 3]) })
+    if (url === ARCHIVE_URL) return Promise.resolve(makeResponse({ bytes: new Uint8Array([1, 2, 3]) }))
     if (url === CHECKSUMS_URL) {
-      return makeResponse({ text: `\n${opts.digest}  ${opts.assetName}\n` })
+      return Promise.resolve(makeResponse({ text: `\n${opts.digest}  ${opts.assetName}\n` }))
     }
-    throw new Error(`unexpected url ${url}`)
-  }) as unknown as typeof fetch
+    return Promise.reject(new Error(`unexpected url ${url}`))
+  }
 }
 
 describe("resolveBinary — resolution order", () => {
@@ -119,10 +149,10 @@ describe("resolveBinary — resolution order", () => {
     const deps = makeDeps({
       env: { XDG_CACHE_HOME: "/xdg" },
       exists: (p) => p === cached || p === marker,
-      fetch: (async () => {
+      fetch: () => {
         fetched = true
-        return makeResponse({ json: {} })
-      }) as unknown as typeof fetch,
+        return Promise.resolve(makeResponse({ json: {} }))
+      },
     })
     expect(await resolveBinary("/proj", deps)).toEqual([cached])
     expect(fetched).toBe(false)
@@ -137,10 +167,10 @@ describe("resolveBinary — resolution order", () => {
     const deps = makeDeps({
       // Binary exists, marker does NOT — a partial/corrupt cache, not a valid hit.
       exists: (p) => p === cachedBin,
-      fetch: (async (url: string) => {
+      fetch: (input) => {
         fetched = true
-        return router(url as unknown as URL)
-      }) as unknown as typeof fetch,
+        return router(input)
+      },
     })
     expect(await resolveBinary("/proj", deps)).toEqual([cachedBin])
     // The install path ran (network hit) and the marker is now written.
@@ -161,10 +191,10 @@ describe("resolveBinary — resolution order", () => {
       // root, the cached bin would be the relative "gogate/bin/gogate" and this would
       // miss → fall through to a network install (and throw).
       exists: (p) => p === defaultCached || p === defaultMarker,
-      fetch: (async () => {
+      fetch: () => {
         fetched = true
-        return makeResponse({ json: {} })
-      }) as unknown as typeof fetch,
+        return Promise.resolve(makeResponse({ json: {} }))
+      },
     })
     expect(await resolveBinary("/proj", deps)).toEqual([defaultCached])
     expect(fetched).toBe(false)
@@ -243,13 +273,15 @@ describe("resolveBinary — cold install", () => {
     const router = installFetch({ assetName, digest: "deadbeef", tagName: "v9.9.9" })
     const deps = makeDeps({
       env: { GOGATE_VERSION: "v9.9.9", GITHUB_TOKEN: "tok" },
-      fetch: (async (url: string, init?: { headers?: Record<string, string> }) => {
+      fetch: (input, init) => {
+        const url = inputToURL(input)
         if (url.includes("api.github.com")) {
           calledUrl = url
-          authHeader = init?.headers?.Authorization
+          const h = init?.headers
+          authHeader = readAuthHeader(h)
         }
-        return router(url as unknown as URL)
-      }) as unknown as typeof fetch,
+        return router(input)
+      },
     })
     await resolveBinary("/proj", deps)
     expect(calledUrl).toBe("https://api.github.com/repos/maros7/omos/releases/tags/v9.9.9")
@@ -260,20 +292,23 @@ describe("resolveBinary — cold install", () => {
     const assetName = "gogate_linux_amd64.tar.gz"
     const deps = makeDeps({
       env: { GOGATE_VERSION: "v7.0.0" },
-      fetch: (async (url: string) => {
+      fetch: (input) => {
+        const url = inputToURL(input)
         if (url.includes("api.github.com")) {
-          return makeResponse({
-            json: {
-              assets: [
-                { name: assetName, browser_download_url: ARCHIVE_URL },
-                { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
-              ],
-            },
-          })
+          return Promise.resolve(
+            makeResponse({
+              json: {
+                assets: [
+                  { name: assetName, browser_download_url: ARCHIVE_URL },
+                  { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
+                ],
+              },
+            }),
+          )
         }
-        if (url === ARCHIVE_URL) return makeResponse({ bytes: new Uint8Array([1]) })
-        return makeResponse({ text: `deadbeef  ${assetName}\n` })
-      }) as unknown as typeof fetch,
+        if (url === ARCHIVE_URL) return Promise.resolve(makeResponse({ bytes: new Uint8Array([1]) }))
+        return Promise.resolve(makeResponse({ text: `deadbeef  ${assetName}\n` }))
+      },
     })
     await resolveBinary("/proj", deps)
     expect(deps.chmods.length).toBe(1)
@@ -293,10 +328,10 @@ describe("resolveBinary — BUG B: GOGATE_VERSION genuinely pins the cache", () 
       env: { GOGATE_VERSION: version },
       // The UNVERSIONED binary + marker exist, but a pinned version must not use them.
       exists: (p) => p === unversioned || p === `${unversioned}.ok`,
-      fetch: (async (url: string) => {
+      fetch: (input) => {
         fetched = true
-        return router(url as unknown as URL)
-      }) as unknown as typeof fetch,
+        return router(input)
+      },
     })
     expect(await resolveBinary("/proj", deps)).toEqual([versionedBin])
     expect(fetched).toBe(true)
@@ -311,10 +346,10 @@ describe("resolveBinary — BUG B: GOGATE_VERSION genuinely pins the cache", () 
     const deps = makeDeps({
       env: { GOGATE_VERSION: version },
       exists: (p) => p === versionedBin || p === versionedMarker,
-      fetch: (async () => {
+      fetch: () => {
         fetched = true
-        return makeResponse({ json: {} })
-      }) as unknown as typeof fetch,
+        return Promise.resolve(makeResponse({ json: {} }))
+      },
     })
     expect(await resolveBinary("/proj", deps)).toEqual([versionedBin])
     expect(fetched).toBe(false)
@@ -338,110 +373,125 @@ describe("resolveBinary — BUG B: GOGATE_VERSION genuinely pins the cache", () 
 describe("resolveBinary — install failures throw", () => {
   test("release API non-2xx throws", async () => {
     const deps = makeDeps({
-      fetch: (async () => makeResponse({ ok: false, status: 503 })) as unknown as typeof fetch,
+      fetch: () => Promise.resolve(makeResponse({ ok: false, status: 503 })),
     })
-    await expect(resolveBinary("/proj", deps)).rejects.toThrow(/release lookup failed \(503\)/)
+    await expectReject(resolveBinary("/proj", deps), /release lookup failed \(503\)/)
   })
 
   test("unsupported platform (asset missing) throws", async () => {
     const deps = makeDeps({
-      fetch: (async (url: string) => {
+      fetch: (input) => {
+        const url = inputToURL(input)
         if (url.includes("api.github.com")) {
-          return makeResponse({
-            json: {
-              tag_name: "v1",
-              assets: [{ name: "checksums.txt", browser_download_url: CHECKSUMS_URL }],
-            },
-          })
+          return Promise.resolve(
+            makeResponse({
+              json: {
+                tag_name: "v1",
+                assets: [{ name: "checksums.txt", browser_download_url: CHECKSUMS_URL }],
+              },
+            }),
+          )
         }
-        return makeResponse({})
-      }) as unknown as typeof fetch,
+        return Promise.resolve(makeResponse({}))
+      },
     })
-    await expect(resolveBinary("/proj", deps)).rejects.toThrow(/unsupported platform/)
+    await expectReject(resolveBinary("/proj", deps), /unsupported platform/)
   })
 
   test("missing checksums.txt asset throws", async () => {
     const assetName = "gogate_linux_amd64.tar.gz"
     const deps = makeDeps({
-      fetch: (async (url: string) => {
+      fetch: (input) => {
+        const url = inputToURL(input)
         if (url.includes("api.github.com")) {
-          return makeResponse({
-            json: {
-              tag_name: "v1",
-              assets: [{ name: assetName, browser_download_url: ARCHIVE_URL }],
-            },
-          })
+          return Promise.resolve(
+            makeResponse({
+              json: {
+                tag_name: "v1",
+                assets: [{ name: assetName, browser_download_url: ARCHIVE_URL }],
+              },
+            }),
+          )
         }
-        return makeResponse({})
-      }) as unknown as typeof fetch,
+        return Promise.resolve(makeResponse({}))
+      },
     })
-    await expect(resolveBinary("/proj", deps)).rejects.toThrow(/no checksums\.txt asset/)
+    await expectReject(resolveBinary("/proj", deps), /no checksums\.txt asset/)
   })
 
   test("archive download non-2xx throws", async () => {
     const assetName = "gogate_linux_amd64.tar.gz"
     const deps = makeDeps({
-      fetch: (async (url: string) => {
+      fetch: (input) => {
+        const url = inputToURL(input)
         if (url.includes("api.github.com")) {
-          return makeResponse({
-            json: {
-              tag_name: "v1",
-              assets: [
-                { name: assetName, browser_download_url: ARCHIVE_URL },
-                { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
-              ],
-            },
-          })
+          return Promise.resolve(
+            makeResponse({
+              json: {
+                tag_name: "v1",
+                assets: [
+                  { name: assetName, browser_download_url: ARCHIVE_URL },
+                  { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
+                ],
+              },
+            }),
+          )
         }
-        if (url === ARCHIVE_URL) return makeResponse({ ok: false, status: 404 })
-        return makeResponse({ text: "" })
-      }) as unknown as typeof fetch,
+        if (url === ARCHIVE_URL) return Promise.resolve(makeResponse({ ok: false, status: 404 }))
+        return Promise.resolve(makeResponse({ text: "" }))
+      },
     })
-    await expect(resolveBinary("/proj", deps)).rejects.toThrow(/download of .* failed \(404\)/)
+    await expectReject(resolveBinary("/proj", deps), /download of .* failed \(404\)/)
   })
 
   test("checksums download non-2xx throws", async () => {
     const assetName = "gogate_linux_amd64.tar.gz"
     const deps = makeDeps({
-      fetch: (async (url: string) => {
+      fetch: (input) => {
+        const url = inputToURL(input)
         if (url.includes("api.github.com")) {
-          return makeResponse({
-            json: {
-              tag_name: "v1",
-              assets: [
-                { name: assetName, browser_download_url: ARCHIVE_URL },
-                { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
-              ],
-            },
-          })
+          return Promise.resolve(
+            makeResponse({
+              json: {
+                tag_name: "v1",
+                assets: [
+                  { name: assetName, browser_download_url: ARCHIVE_URL },
+                  { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
+                ],
+              },
+            }),
+          )
         }
-        if (url === ARCHIVE_URL) return makeResponse({ bytes: new Uint8Array([1]) })
-        return makeResponse({ ok: false, status: 500 })
-      }) as unknown as typeof fetch,
+        if (url === ARCHIVE_URL) return Promise.resolve(makeResponse({ bytes: new Uint8Array([1]) }))
+        return Promise.resolve(makeResponse({ ok: false, status: 500 }))
+      },
     })
-    await expect(resolveBinary("/proj", deps)).rejects.toThrow(/checksums\.txt failed \(500\)/)
+    await expectReject(resolveBinary("/proj", deps), /checksums\.txt failed \(500\)/)
   })
 
   test("checksums.txt without an entry for the asset throws", async () => {
     const assetName = "gogate_linux_amd64.tar.gz"
     const deps = makeDeps({
-      fetch: (async (url: string) => {
+      fetch: (input) => {
+        const url = inputToURL(input)
         if (url.includes("api.github.com")) {
-          return makeResponse({
-            json: {
-              tag_name: "v1",
-              assets: [
-                { name: assetName, browser_download_url: ARCHIVE_URL },
-                { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
-              ],
-            },
-          })
+          return Promise.resolve(
+            makeResponse({
+              json: {
+                tag_name: "v1",
+                assets: [
+                  { name: assetName, browser_download_url: ARCHIVE_URL },
+                  { name: "checksums.txt", browser_download_url: CHECKSUMS_URL },
+                ],
+              },
+            }),
+          )
         }
-        if (url === ARCHIVE_URL) return makeResponse({ bytes: new Uint8Array([1]) })
-        return makeResponse({ text: "\n0000  some-other-file\n" })
-      }) as unknown as typeof fetch,
+        if (url === ARCHIVE_URL) return Promise.resolve(makeResponse({ bytes: new Uint8Array([1]) }))
+        return Promise.resolve(makeResponse({ text: "\n0000  some-other-file\n" }))
+      },
     })
-    await expect(resolveBinary("/proj", deps)).rejects.toThrow(/no entry for/)
+    await expectReject(resolveBinary("/proj", deps), /no entry for/)
   })
 
   test("checksum mismatch throws and does not install", async () => {
@@ -450,7 +500,7 @@ describe("resolveBinary — install failures throw", () => {
       sha256: () => "aaaa",
       fetch: installFetch({ assetName, digest: "bbbb" }),
     })
-    await expect(resolveBinary("/proj", deps)).rejects.toThrow(/checksum mismatch/)
+    await expectReject(resolveBinary("/proj", deps), /checksum mismatch/)
     expect(deps.chmods.length).toBe(0)
     expect(deps.extracts.length).toBe(0)
   })
@@ -496,7 +546,8 @@ describe("defaultDeps — real implementations", () => {
       expect(readFileSync(join(outDir, "hello.txt"), "utf8")).toBe("hi")
 
       // extract surfaces tar failures.
-      await expect(deps.extract(join(dir, "nope.tar.gz"), outDir, false)).rejects.toThrow(
+      await expectReject(
+        deps.extract(join(dir, "nope.tar.gz"), outDir, false),
         /extract failed/,
       )
     } finally {
@@ -504,3 +555,30 @@ describe("defaultDeps — real implementations", () => {
     }
   })
 })
+
+// readAuthHeader pulls the Authorization value out of fetch's many header shapes
+// (Headers / record / array) without an `as` cast. The header param is typed as
+// `unknown` because bun-types' `HeadersInit` resolves to an error/any type which
+// would otherwise trip `no-unsafe-*` rules; we narrow each branch explicitly.
+function readAuthHeader(h: unknown): string | undefined {
+  if (!h) return undefined
+  if (h instanceof Headers) return h.get("Authorization") ?? undefined
+  if (Array.isArray(h)) {
+    for (const pair of h) {
+      if (Array.isArray(pair) && pair[0] === "Authorization" && typeof pair[1] === "string") {
+        return pair[1]
+      }
+    }
+    return undefined
+  }
+  if (typeof h === "object") {
+    // Use Object.entries to read keys off the unknown object without an `as`
+    // cast (the `typeof === "object"` narrow yields `object`, which has no
+    // index signature).
+    for (const [k, v] of Object.entries(h)) {
+      if (k === "Authorization" && typeof v === "string") return v
+    }
+    return undefined
+  }
+  return undefined
+}

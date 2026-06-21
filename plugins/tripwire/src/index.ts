@@ -65,11 +65,24 @@ function tier(v: number, b: Budget): Tier {
   return "none"
 }
 
-function fmt(msg: string, metric: string, value: number, limit: number): string {
-  return msg
-    .replace("{metric}", metric)
-    .replace("{value}", String(Math.round(value * 100) / 100))
-    .replace("{limit}", String(limit))
+/** fmt() arguments bundled — keeps it under the 3-param lint ceiling. */
+type FmtArgs = { msg: string; metric: string; value: number; limit: number }
+
+function fmt(args: FmtArgs): string {
+  return args.msg
+    .replace("{metric}", args.metric)
+    .replace("{value}", String(Math.round(args.value * 100) / 100))
+    .replace("{limit}", String(args.limit))
+}
+
+/**
+ * positiveLimit returns n only when it's a real positive ceiling; both `0`
+ * (disabled, per the Budget contract) and `undefined` collapse to undefined.
+ * Replaces the legacy `b.hard || undefined` shorthand without `||` (the
+ * nullish-coalescing rule disallows it).
+ */
+function positiveLimit(n: number | undefined): number | undefined {
+  return n != null && n > 0 ? n : undefined
 }
 
 /** Build the running-budget counter line shown to the model each turn. */
@@ -78,7 +91,7 @@ function counterLine(s: SessionState, cfg: TripwireConfig): string {
   const metrics: Metric[] = ["cost", "steps", "edits", "tools", "compactions", "reads"]
   for (const m of metrics) {
     const b = cfg.budgets[m]
-    const limit = (b?.hard || undefined) ?? (b?.warn || undefined)
+    const limit = positiveLimit(b.hard) ?? positiveLimit(b.warn)
     if (limit == null) continue
     const v = value(s, m)
     const shown = m === "cost" ? `$${v.toFixed(2)}/$${limit}` : `${v}/${limit}`
@@ -114,8 +127,13 @@ export function evaluate(cfg: TripwireConfig, s: SessionState): {
     const b = cfg.budgets[m]
     const v = value(s, m)
     const t = tier(v, b)
-    if (t === "hard") hard.push({ metric: m, v, limit: b.hard! })
-    if (t === "warn") warns.push({ metric: m, message: fmt(cfg.messages.warn, m, v, b.warn!) })
+    // After tier() returned "hard"/"warn", the corresponding limit is
+    // guaranteed > 0 (per the tier() guards above) — narrow with an explicit
+    // `!= null` rather than `!` so the rule stays happy and TS still proves it.
+    if (t === "hard" && b.hard != null) hard.push({ metric: m, v, limit: b.hard })
+    if (t === "warn" && b.warn != null) {
+      warns.push({ metric: m, message: fmt({ msg: cfg.messages.warn, metric: m, value: v, limit: b.warn }) })
+    }
   }
   return { hard, warns }
 }
@@ -148,15 +166,101 @@ export function hardMessage(cfg: TripwireConfig, hard: HardBreach[]): string {
   if (hard.length === 0) return ""
   if (hard.length === 1) {
     const only = hard[0]
-    return fmt(cfg.messages.hard, only.metric, only.v, only.limit)
+    return fmt({ msg: cfg.messages.hard, metric: only.metric, value: only.v, limit: only.limit })
   }
   const fragments = hard.map(formatMetric).join(", ")
   return `TRIPWIRE HARD: ${fragments}. Stop now — split the session or delegate the remaining work.`
 }
 
-export const TripwirePlugin: Plugin = async ({ client, directory }, options?: unknown) => {
+/**
+ * Wider-than-SDK view of an opencode event's `properties` payload. The SDK's
+ * `Event` union is closed (specific `type` literals per variant), but tripwire
+ * also consumes the custom `session.next.step.ended` event the orchestrator
+ * emits at runtime without (yet) a typed variant. We widen each field so the
+ * `event` hook can read its real payload without `any` smuggling. Production
+ * events from the SDK satisfy this structurally.
+ */
+type EventProps = {
+  sessionID?: string
+  info?: { id?: string }
+  cost?: unknown
+  tokens?: {
+    input?: unknown
+    output?: unknown
+    cache?: { read?: unknown; write?: unknown }
+  }
+}
+
+/**
+ * Wider-than-SDK Event envelope: an optional `type` discriminator plus an
+ * optional `properties` block (the only field every SDK variant carries).
+ */
+type TripwireEvent = {
+  type?: string
+  properties?: EventProps
+}
+
+/** Read a numeric `properties.cost` off an event payload (narrow without `as`). */
+function readEventCost(p: EventProps | undefined): number | undefined {
+  if (!p) return undefined
+  return typeof p.cost === "number" ? p.cost : undefined
+}
+
+/** Read an event's token block as a numeric struct (or undefined). */
+function readEventTokens(p: EventProps | undefined): {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+} | undefined {
+  const t = p?.tokens
+  if (!t) return undefined
+  const input = typeof t.input === "number" ? t.input : 0
+  const output = typeof t.output === "number" ? t.output : 0
+  const cr = typeof t.cache?.read === "number" ? t.cache.read : 0
+  const cw = typeof t.cache?.write === "number" ? t.cache.write : 0
+  return { input, output, cacheRead: cr, cacheWrite: cw }
+}
+
+/**
+ * Structural input shape for the tool.execute.* hooks as tripwire uses them.
+ * The SDK's Hooks interface declares `args: any`; we narrow with explicit
+ * runtime checks (readToolArgs) so the lint's no-unsafe-* rules stay happy.
+ */
+type ToolInputLike = {
+  tool?: string
+  sessionID?: string
+  args?: unknown
+}
+
+/** Read a `filePath | path | file` path argument off a tool input safely.
+ * Preserves explicit priority (filePath → path → file) regardless of key
+ * insertion order — a single Object.entries loop would be nondeterministic
+ * when multiple keys are present. */
+function readToolPath(input: ToolInputLike): string {
+  const a = input.args
+  if (typeof a !== "object" || a === null || Array.isArray(a)) return "?"
+  for (const target of ["filePath", "path", "file"] as const) {
+    for (const [k, v] of Object.entries(a)) {
+      if (k === target && typeof v === "string") return v
+    }
+  }
+  return "?"
+}
+
+/** Render an unknown caught value as a message string (Error → message; else String). */
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+/**
+ * TripwirePlugin entry point. Plain (non-async) arrow returning Promise.resolve
+ * so the require-await rule stays clean — the outer entry point does not await;
+ * only the inner hooks (which DO await client.session.abort) do.
+ */
+export const TripwirePlugin: Plugin = ({ client, directory }, options?: unknown) => {
   const cfg = loadConfig(directory, options)
-  if (!cfg.enabled) return {}
+  if (!cfg.enabled) return Promise.resolve({})
 
   const sessions = new Map<string, SessionState>()
   const get = (id: string) => {
@@ -165,13 +269,15 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
     return s
   }
 
-  return {
+  return Promise.resolve({
     // Accumulate cost/steps as each step finishes, then enforce the ceiling.
-    event: async ({ event }: any) => {
-      // Note: property path per opencode event schema; guarded so a schema
-      // drift degrades to "no cost tracking" rather than throwing.
-      const type = event?.type
-      const p = event.properties ?? event
+    event: async ({ event }: { event: TripwireEvent }) => {
+      // Guard against SDK schema drift: if event is missing/malformed, degrade
+      // to a no-op rather than throwing (which would reject the hook promise).
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime defense; TS types say event is always defined but the SDK could violate that
+      if (!event || typeof event.type !== "string") return
+      const type = event.type
+      const p: EventProps | undefined = event.properties
 
       // Evict per-session state when the session is deleted so the `sessions`
       // Map (and each session's `reads` Map) can't grow unbounded over the
@@ -189,14 +295,20 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
       if (!id) return
       const s = get(id)
       s.steps++
-      if (typeof p.cost === "number") s.cost += p.cost
-      s.tokensIn += p.tokens?.input ?? 0
-      s.tokensOut += p.tokens?.output ?? 0
-      s.cacheRead += p.tokens?.cache?.read ?? 0
-      s.cacheWrite += p.tokens?.cache?.write ?? 0
+      const cost = readEventCost(p)
+      if (cost !== undefined) s.cost += cost
+      const tokens = readEventTokens(p)
+      if (tokens) {
+        s.tokensIn += tokens.input
+        s.tokensOut += tokens.output
+        s.cacheRead += tokens.cacheRead
+        s.cacheWrite += tokens.cacheWrite
+      }
 
       // Optional JSONL session-summary logging (cumulative; one line per N steps).
-      // every may arrive non-numeric via untyped JSONC/plugin-option merge — clamp.
+      // Defensive: merge() in config.ts trusts JSONC/plugin-option overrides via
+      // `as T` (zero-dep envelope pattern, same as review-fixer's GraphQL trust),
+      // so `every` may arrive as a non-number at runtime — clamp via Number().
       const everyN = Math.floor(Number(cfg.log.every))
       const every = Number.isFinite(everyN) && everyN >= 1 ? everyN : 1
       if (cfg.log.enabled && s.steps % every === 0) {
@@ -230,19 +342,24 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
         console.warn(`[opencode-tripwire] ${hardMessage(cfg, hard)} — aborting session ${id}`)
         try {
           await client.session.abort({ path: { id } })
-        } catch (e: any) {
-          console.warn(`[opencode-tripwire] abort failed: ${e?.message}`)
+        } catch (e) {
+          console.warn(`[opencode-tripwire] abort failed: ${errorMessage(e)}`)
         }
       }
     },
 
     // Block tools once a hard tier is active. Must run BEFORE the tool so the
-    // throw actually prevents it; counting happens in tool.execute.after.
-    "tool.execute.before": async (input: any, output: any) => {
-      const id = input?.sessionID
+    // throw actually prevents it; counting happens in tool.execute.after. Body
+    // is synchronous, but the SDK's hook contract is `Promise<void>` (a throw
+    // must become a rejected promise); declared `async` for that contract even
+    // though no `await` happens inside.
+    // eslint-disable-next-line @typescript-eslint/require-await -- hook must be async to satisfy the SDK's Promise<void> hook contract so a thrown Error rejects the promise; the body happens to be synchronous.
+    "tool.execute.before": async (input: ToolInputLike) => {
+      const id = input.sessionID
       if (!id) return
       const s = get(id)
       const tool = input.tool
+      if (!tool) return
       if (cfg.onHard === "block") {
         const { hard } = evaluate(cfg, s)
         if (hard.length > 0 && cfg.blockTools.includes(tool)) {
@@ -252,16 +369,18 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
     },
 
     // Count tool usage AFTER it runs so failed/denied calls don't inflate budgets.
-    "tool.execute.after": async (input: any, output: any) => {
-      const id = input?.sessionID
+    // eslint-disable-next-line @typescript-eslint/require-await -- hook must be async to satisfy the SDK's Promise<void> hook contract; body is synchronous.
+    "tool.execute.after": async (input: ToolInputLike) => {
+      const id = input.sessionID
       if (!id) return
       const s = get(id)
       const tool = input.tool
+      if (!tool) return
       s.tools++
       if (cfg.toolClasses.edit.includes(tool)) s.edits++
       if (cfg.toolClasses.compact.includes(tool)) s.compactions++
       if (cfg.toolClasses.read.includes(tool)) {
-        const path = input?.args?.filePath ?? input?.args?.path ?? input?.args?.file ?? "?"
+        const path = readToolPath(input)
         const n = (s.reads.get(path) ?? 0) + 1
         s.reads.set(path, n)
         if (n > s.maxReads) s.maxReads = n
@@ -269,9 +388,13 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
     },
 
     // Inject the live counter (+ any new warn nudges) into the model's turn.
-    "experimental.chat.system.transform": async (input: any, output: any) => {
-      const id = input?.sessionID
-      if (!id || !Array.isArray(output?.system)) return
+    // eslint-disable-next-line @typescript-eslint/require-await -- hook must be async to satisfy the SDK's Promise<void> hook contract; body is synchronous.
+    "experimental.chat.system.transform": async (
+      input: { sessionID?: string },
+      output: { system: string[] },
+    ) => {
+      const id = input.sessionID
+      if (!id) return
       const s = get(id)
       if (cfg.counter.inject) output.system.push(counterLine(s, cfg))
       if (cfg.onWarn === "inject") {
@@ -287,7 +410,7 @@ export const TripwirePlugin: Plugin = async ({ client, directory }, options?: un
         if (hard.length > 0) output.system.push(hardMessage(cfg, hard))
       }
     },
-  }
+  })
 }
 
 export default TripwirePlugin

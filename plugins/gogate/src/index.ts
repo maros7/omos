@@ -61,17 +61,31 @@ const gogateTool = tool({
   },
 })
 
+// readCommandField safely extracts the bash tool's `command` arg from the
+// `output.args` payload opencode passes to `tool.execute.before`. Hooks types
+// `args` as `any`; we narrow with runtime checks (no `as` / `!`) so the lint's
+// unsafe-member-access rule stays satisfied even though the SDK type is open.
+function readCommandField(args: unknown): string {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return ""
+  if (!("command" in args)) return ""
+  const c = args.command
+  return typeof c === "string" ? c : ""
+}
+
 // GoGate rewrites recognized Go toolchain commands (go build/test/vet, golangci-lint
 // run) into a gogate invocation so the model gets structured output; everything else
 // (go mod, go run, go get, ...) passes through untouched. Set GOGATE_MODE=off to disable.
 // It also exposes the gogate custom tool directly.
-export const GoGate: Plugin = async ({ directory }) => {
-  return {
+//
+// Plain `(input) => Promise.resolve({...})` (not `async`) so the `require-await`
+// rule stays clean — the outer entry point does not await; only the inner hooks do.
+export const GoGate: Plugin = ({ directory }) =>
+  Promise.resolve({
     "tool.execute.before": async (input, output) => {
       if (input.tool !== "bash") return
       if (process.env.GOGATE_MODE?.toLowerCase() === "off") return
 
-      const cmd = String(output.args?.command ?? "")
+      const cmd = readCommandField(output.args)
 
       let argv: string[]
       try {
@@ -89,12 +103,17 @@ export const GoGate: Plugin = async ({ directory }) => {
       if (rerun && /^\d+$/.test(rerun)) flags.push(`-rerun-fails=${rerun}`)
 
       const rewritten = rewriteGoCommand(cmd, argv, flags)
-      if (rewritten && output.args) output.args.command = rewritten
+      // Preserve the existing args object (the bash tool may carry other fields
+      // like workdir/timeout); only overwrite `command` when we rewrote it.
+      // Object.assign avoids an `as` cast while still mutating the live args
+      // object the SDK reads back after the hook returns.
+      if (rewritten && typeof output.args === "object" && output.args !== null) {
+        Object.assign(output.args, { command: rewritten })
+      }
     },
     tool: {
       gogate: gogateTool,
     },
-  }
-}
+  })
 
 export default GoGate

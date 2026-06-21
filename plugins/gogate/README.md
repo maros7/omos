@@ -220,3 +220,13 @@ just remove the `<cachedBin>.ok` marker, and the next run re-downloads and re-ve
 
 - Go 1.26+
 - golangci-lint v2 (uses `--output.json.path stdout`)
+
+## Development
+
+The TS plugin shim (`src/`) wraps the Go binary. To develop and test the TS layer:
+
+```sh
+bun test                 # unit tests
+bun run typecheck        # tsc --noEmit
+bun run lint             # eslint
+```

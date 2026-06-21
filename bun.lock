@@ -13,7 +13,9 @@
       },
       "devDependencies": {
         "@types/bun": "^1.3.14",
+        "eslint": "10.5.0",
         "typescript": "6.0.3",
+        "typescript-eslint": "^8.61.1",
       },
     },
     "plugins/review-fixer": {
@@ -36,7 +38,9 @@
       "devDependencies": {
         "@opencode-ai/plugin": "1.17.8",
         "@types/node": "26.0.0",
+        "eslint": "10.5.0",
         "typescript": "6.0.3",
+        "typescript-eslint": "^8.61.1",
       },
       "peerDependencies": {
         "@opencode-ai/plugin": ">=1.14.0",

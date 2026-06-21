@@ -21,9 +21,14 @@ TS:
 
 - `bun install` (root)
 - gogate tests: `bun test` in `plugins/gogate`
+- gogate typecheck: `bun run typecheck` in `plugins/gogate`
+- gogate lint: `bun run lint` in `plugins/gogate`
 - review-fixer tests: `bun test` in `plugins/review-fixer`
 - review-fixer typecheck: `bun run typecheck` in `plugins/review-fixer`
+- review-fixer lint: `bun run lint` in `plugins/review-fixer`
+- tripwire tests: `bun test` in `plugins/tripwire`
 - tripwire typecheck: `bun run typecheck` in `plugins/tripwire`
+- tripwire lint: `bun run lint` in `plugins/tripwire`
 
 ## Conventions
 
@@ -34,7 +39,7 @@ TS:
 
 ### TypeScript
 
-Enforced by ESLint + typescript-eslint (review-fixer now; gogate/tripwire to follow).
+Enforced by ESLint + typescript-eslint (all three TS plugins).
 
 - No `as` — type guards or fix the type at the source.
 - No `any` — `unknown` + narrow, or proper generics.
@@ -48,7 +53,7 @@ Enforced by ESLint + typescript-eslint (review-fixer now; gogate/tripwire to fol
 ## PR flow
 
 - No direct pushes to `main`; branch + PR + squash-merge.
-- 6 required checks must pass: Go gate, TS plugin, Typecheck, review-fixer TS, review-fixer Typecheck, review-fixer Lint.
+- Required checks must pass: Go gate, plus per-plugin TS test/typecheck/lint jobs (gogate, review-fixer, tripwire — see CI workflows for exact job names).
 
 ## Releases
 
