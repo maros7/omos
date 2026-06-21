@@ -1,6 +1,6 @@
 {
   "name": "opencode-review-fixer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Token-minimized PR review-thread handling for OpenCode — list, reply+resolve, and verify review threads from any reviewer.",
   "type": "module",
   "main": "src/index.ts",
@@ -12,14 +12,26 @@
     "url": "git+https://github.com/maros7/omos.git",
     "directory": "plugins/review-fixer"
   },
-  "files": ["src", "SKILL.md", "install-skill.mjs", "README.md"],
+  "files": [
+    "src",
+    "SKILL.md",
+    "install-skill.mjs",
+    "README.md"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "lint": "eslint .",
     "postinstall": "node install-skill.mjs"
   },
-  "keywords": ["opencode", "plugin", "review", "pull-request", "github", "review-fixer"],
+  "keywords": [
+    "opencode",
+    "plugin",
+    "review",
+    "pull-request",
+    "github",
+    "review-fixer"
+  ],
   "license": "MIT",
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.14.0"
