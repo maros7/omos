@@ -306,7 +306,9 @@ export const TripwirePlugin: Plugin = ({ client, directory }, options?: unknown)
       }
 
       // Optional JSONL session-summary logging (cumulative; one line per N steps).
-      // every may arrive non-numeric via untyped JSONC/plugin-option merge — clamp.
+      // Defensive: merge() in config.ts trusts JSONC/plugin-option overrides via
+      // `as T` (zero-dep envelope pattern, same as review-fixer's GraphQL trust),
+      // so `every` may arrive as a non-number at runtime — clamp via Number().
       const everyN = Math.floor(Number(cfg.log.every))
       const every = Number.isFinite(everyN) && everyN >= 1 ? everyN : 1
       if (cfg.log.enabled && s.steps % every === 0) {

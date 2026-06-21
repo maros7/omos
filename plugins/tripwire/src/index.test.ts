@@ -150,8 +150,8 @@ type TestClient = { session: { abort: (req: { path: { id: string } }) => Promise
 async function buildPlugin(client: TestClient): Promise<TestHooks> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test-only narrowing of Hooks to TestHooks (widened event-arg type); the runtime hooks object satisfies TestHooks structurally, but the SDK's Hooks types event against the closed Event union which can't describe our custom test events.
   return (await TripwirePlugin(
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test-only partial PluginInput (the plugin only reads `client` and `directory` at runtime; PluginInput has many more fields the orchestrator populates in production).
-    { client, directory: "/tmp/tripwire-test-nonexistent" } as never,
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- test-only partial PluginInput (the plugin only reads `client` and `directory` at runtime; PluginInput has many more fields the orchestrator populates in production). `as never` was too aggressive; `unknown` bridge with the real param type tracks the signature.
+    { client, directory: "/tmp/tripwire-test-nonexistent" } as unknown as Parameters<typeof TripwirePlugin>[0],
     { budgets: { cost: { hard: 10 } }, onHard: "abort", log: { enabled: false } },
   )) as TestHooks
 }
