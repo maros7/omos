@@ -17,8 +17,11 @@ const base = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
 const dest = join(base, "opencode", "skills", "review-fixer", "SKILL.md")
 
 try {
-  mkdirSync(dirname(dest), { recursive: true })
-  copyFileSync(src, dest)
+  // Skip if the user already has a SKILL.md — never clobber local edits.
+  if (!existsSync(dest)) {
+    mkdirSync(dirname(dest), { recursive: true })
+    copyFileSync(src, dest)
+  }
 } catch (e) {
   // Best-effort: never fail the install over a skill-file copy.
   console.warn(`review-fixer: could not install skill: ${e instanceof Error ? e.message : String(e)}`)

@@ -48,7 +48,7 @@ Enforced by ESLint + typescript-eslint (review-fixer now; gogate/tripwire to fol
 ## PR flow
 
 - No direct pushes to `main`; branch + PR + squash-merge.
-- 3 required checks must pass: Go gate, TS plugin, Typecheck.
+- 6 required checks must pass: Go gate, TS plugin, Typecheck, review-fixer TS, review-fixer Typecheck, review-fixer Lint.
 
 ## Releases
 

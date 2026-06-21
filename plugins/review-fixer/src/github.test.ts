@@ -262,6 +262,36 @@ describe("resolveThread", () => {
     const c = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
     await expectReject(c.resolveThread("T"), /resolve: graphql: forbidden/)
   })
+
+  test("succeeds on 200 {\"data\":null} with no errors (mutation null-data parity)", async () => {
+    // Go passed out=nil and never decoded `data`, so {"data":null} is a no-op success.
+    const { fetch } = fakeFetch([
+      { match: "/graphql", respond: () => jsonResponse({ data: null }) },
+    ])
+    const c = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
+    expect(await c.resolveThread("T")).toBeUndefined()
+  })
+})
+
+describe("failure paths", () => {
+  test("fetchWithTimeout abort surfaces /timeout after Ns/", async () => {
+    // Injected fetch that rejects with an AbortError, mimicking the timeout abort
+    // firing — fetchWithTimeout maps any AbortError to the timeout message.
+    const fetch: FetchLike = () => {
+      const err = new Error("aborted")
+      err.name = "AbortError"
+      return Promise.reject(err)
+    }
+    const c = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
+    await expectReject(c.resolveThread("T"), /timeout after \d+s/)
+  })
+
+  test("transport-level fetch rejection propagates through listThreads", async () => {
+    // Injected fetch that rejects (not a non-2xx response) — should propagate.
+    const fetch: FetchLike = () => Promise.reject(new Error("network down"))
+    const c = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
+    await expectReject(c.listThreads("o", "r", 5), /network down/)
+  })
 })
 
 describe("toThread flattening", () => {

@@ -29,6 +29,26 @@ describe("install-skill.mjs", () => {
     }
   })
 
+  test("skips copy when dest SKILL.md already exists (never clobbers user edits)", () => {
+    const xdg = mkdtempSync(join(tmpdir(), "rf-xdg-exists-"))
+    try {
+      const destDir = join(xdg, "opencode", "skills", "review-fixer")
+      mkdirSync(destDir, { recursive: true })
+      const dest = join(destDir, "SKILL.md")
+      const userContent = "# my local edits — keep me\n"
+      writeFileSync(dest, userContent)
+      const r = spawnSync(process.execPath, [SCRIPT], {
+        env: { ...process.env, XDG_CONFIG_HOME: xdg },
+        encoding: "utf8",
+      })
+      expect(r.status).toBe(0)
+      // Existing file is left untouched (not overwritten by the bundled SKILL.md).
+      expect(readFileSync(dest, "utf8")).toBe(userContent)
+    } finally {
+      rmSync(xdg, { recursive: true, force: true })
+    }
+  })
+
   test("dest dir unwritable still exits 0 (skipped where chmod can't deny)", () => {
     // On some filesystems / as root, chmod 0o500 still permits
     // writes — skip silently when we detect that.

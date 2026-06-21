@@ -104,9 +104,10 @@ function parseJSON(text: string): unknown {
 }
 
 /**
- * snippet — trim + cap a body to MAX_SNIPPET_BYTES UTF-8 bytes (matches Go
- * client.go:123 byte-for-byte). Uses the shared byte-safe `clip` from text.ts
- * so multi-byte runes aren't split mid-rune.
+ * snippet — trim + cap a body to MAX_SNIPPET_BYTES UTF-8 bytes. Identical to Go
+ * client.go:123 for ASCII (all real GitHub error envelopes). Where Go raw-slices
+ * `s[:200]` and could split a multi-byte rune, this uses the rune-safe `clip`
+ * from text.ts, backing off to a rune boundary ≤200 bytes instead.
  */
 const MAX_SNIPPET_BYTES = 200
 function snippet(s: string): string {
@@ -154,7 +155,10 @@ export class GithubClient {
   /** Resolve a review thread by id. */
   async resolveThread(threadID: string): Promise<void> {
     try {
-      await this.graphql(RESOLVE_MUTATION, { id: threadID })
+      // Mutation path: like Go (which passed out=nil and never decoded `data`),
+      // a 2xx `{"data":null}` with no `errors` is a success/no-op. Pass
+      // allowNullData so we don't require/decode `data` for the mutation.
+      await this.graphql(RESOLVE_MUTATION, { id: threadID }, true)
     } catch (e) {
       throw new Error(`resolve: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -174,8 +178,16 @@ export class GithubClient {
     }
   }
 
-  /** POST a GraphQL request; throw on transport / GraphQL / decode errors. */
-  private async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+  /**
+   * POST a GraphQL request; throw on transport / GraphQL / decode errors.
+   * When `allowNullData` is set (mutation path), a 2xx `{"data":null}` with no
+   * `errors` is treated as success — `data` is not required or decoded.
+   */
+  private async graphql<T>(
+    query: string,
+    variables: Record<string, unknown>,
+    allowNullData = false,
+  ): Promise<T> {
     const url = `${this.d.apiBase}/graphql`
     const res = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -200,8 +212,13 @@ export class GithubClient {
       throw new Error(`graphql: ${firstError.message}`)
     }
     if (parsed.data == null) {
-      // Mirrors Go client.go:91 — `data` was null/undefined where an object was expected.
-      // `{"data":null}` from GitHub lands here rather than crashing the caller.
+      // Mutation path (allowNullData): Go passed out=nil and never decoded
+      // `data`, so a 2xx `{"data":null}` with no `errors` is a success/no-op.
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- mutation callers ignore the return value; null `data` is a success/no-op.
+      if (allowNullData) return undefined as T
+      // List-query path: mirrors Go client.go:91 — `data` was null/undefined
+      // where an object was expected. `{"data":null}` from GitHub lands here
+      // rather than crashing the caller.
       throw new Error(`graphql: decode data: ${snippet(text)}`)
     }
     return parsed.data as T // eslint-disable-line @typescript-eslint/consistent-type-assertions -- T is the caller's expected shape; we cannot validate generic JSON against an arbitrary T at runtime without a schema lib. The envelope (`parsed`) is already type-guarded above, and `parsed.data == null` is explicitly rejected, so the only remaining escape hatch is shape-mismatch on T's own fields — caller-side optional chaining handles that.

@@ -35,6 +35,9 @@ export async function runAction(
   // plugin-only adaptation — Go's CLI exposes this via `-api-base`,
   // but the opencode tool surface has no flags, so we fall back to env. Set
   // GITHUB_API_BASE to point at GitHub Enterprise (e.g. https://github.example/api/v3).
+  // Trust note: GITHUB_API_BASE is user-controlled and the bearer token is sent
+  // to whatever host it names (defaults to api.github.com). Same trust model as
+  // the old Go `-api-base` flag — no extra validation here by design.
   const apiBase = deps.env.GITHUB_API_BASE ?? "https://api.github.com"
   const client = new GithubClient({ token, apiBase, fetch: deps.fetch })
   const { owner, name } = await resolveRepo(deps, cwd, opts.repo)

@@ -17,7 +17,7 @@ const reviewFixerTool = tool({
     "  • apply  — for each `items[]` ({threadId, body}), post the reply and resolve the thread.\n" +
     "  • verify — check a PR's remaining unresolved review threads.\n" +
     "Optional `pr`/`repo`/`author` select/filter threads (omit `author` = all reviewers). " +
-    "The `items` payload is sent to the binary over stdin, never the command line.",
+    "The `items` payload is a structured argument passed in-process to the action.",
   args: {
     action: tool.schema
       .enum(["list", "apply", "verify"])
@@ -45,7 +45,7 @@ const reviewFixerTool = tool({
         }),
       )
       .optional()
-      .describe("Threads to reply-to and resolve (apply only). Sent to the binary over stdin."),
+      .describe("Threads to reply-to and resolve (apply only). A structured argument passed in-process to the action."),
   },
   async execute(args, context) {
     const deps = defaultDeps()

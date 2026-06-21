@@ -138,6 +138,8 @@ interface ListCase {
   threads: Thread[]
 }
 
+// NOTE: the golden files assert TS self-consistency only; the renderer formats
+// were hand-verified against the original Go renderer (Go parity checked manually).
 describe("renderList (golden)", () => {
   const cases: ListCase[] = [
     { name: "zero threads", golden: "list-empty", pr: 137, owner: "acme", repo: "widgets", threads: [] },
