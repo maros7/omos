@@ -140,6 +140,7 @@ runaway-session prevention, which is the goal.
 ## Development
 
 ```sh
+bun test                 # unit tests
 bun run typecheck        # tsc --noEmit
 bun run lint             # eslint
 ```

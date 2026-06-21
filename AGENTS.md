@@ -26,6 +26,7 @@ TS:
 - review-fixer tests: `bun test` in `plugins/review-fixer`
 - review-fixer typecheck: `bun run typecheck` in `plugins/review-fixer`
 - review-fixer lint: `bun run lint` in `plugins/review-fixer`
+- tripwire tests: `bun test` in `plugins/tripwire`
 - tripwire typecheck: `bun run typecheck` in `plugins/tripwire`
 - tripwire lint: `bun run lint` in `plugins/tripwire`
 
