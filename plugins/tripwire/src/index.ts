@@ -233,16 +233,16 @@ type ToolInputLike = {
   args?: unknown
 }
 
-/** Read a `filePath | path | file` path argument off a tool input safely. */
+/** Read a `filePath | path | file` path argument off a tool input safely.
+ * Preserves explicit priority (filePath → path → file) regardless of key
+ * insertion order — a single Object.entries loop would be nondeterministic
+ * when multiple keys are present. */
 function readToolPath(input: ToolInputLike): string {
   const a = input.args
   if (typeof a !== "object" || a === null || Array.isArray(a)) return "?"
-  // Object.entries lets us read keys off the `object`-typed value without an
-  // `as` cast (the `typeof === "object"` narrow yields `object`, which has no
-  // index signature).
-  for (const [k, v] of Object.entries(a)) {
-    if ((k === "filePath" || k === "path" || k === "file") && typeof v === "string") {
-      return v
+  for (const target of ["filePath", "path", "file"] as const) {
+    for (const [k, v] of Object.entries(a)) {
+      if (k === target && typeof v === "string") return v
     }
   }
   return "?"

@@ -17,7 +17,7 @@ permissions: {}
 
 jobs:
   test:
-    name: TS plugin
+    name: tripwire TS
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -70,7 +70,7 @@ jobs:
           fail_ci_if_error: false
 
   typecheck:
-    name: Typecheck
+    name: tripwire Typecheck
     runs-on: ubuntu-24.04
     permissions:
       contents: read

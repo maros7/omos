@@ -15,7 +15,7 @@ permissions: {}
 
 jobs:
   typescript:
-    name: TS plugin
+    name: gogate TS
     runs-on: ubuntu-24.04
     permissions:
       contents: read
