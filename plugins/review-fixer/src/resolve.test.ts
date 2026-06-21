@@ -72,6 +72,32 @@ describe("resolveToken", () => {
       expected: "gtok",
     },
     {
+      name: "flag token is trimmed",
+      env: {},
+      flag: "  ghp_xxx  ",
+      spec: { responses: {} },
+      expected: "ghp_xxx",
+    },
+    {
+      name: "GH_TOKEN is trimmed",
+      env: { GH_TOKEN: "  ghp_env  " },
+      spec: { responses: {} },
+      expected: "ghp_env",
+    },
+    {
+      name: "GITHUB_TOKEN is trimmed",
+      env: { GITHUB_TOKEN: "\tghp_gh\n" },
+      spec: { responses: {} },
+      expected: "ghp_gh",
+    },
+    {
+      name: "whitespace-only flag skipped → falls through to env",
+      env: { GH_TOKEN: "ghtok" },
+      flag: "   ",
+      spec: { responses: {} },
+      expected: "ghtok",
+    },
+    {
       name: "gh auth token fallback",
       env: {},
       spec: { responses: { "gh auth token": { stdout: "ghtoken\n", exitCode: 0 } } },

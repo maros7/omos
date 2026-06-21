@@ -1,7 +1,7 @@
 // github.test.ts — table-driven, mocked fetch. Verifies transport errors,
 // pagination, REST reply shape, and GraphQL error wrapping.
 import { test, expect, describe } from "bun:test"
-import { GithubClient, toThread, type Thread, type ThreadNode } from "./github"
+import { GithubClient, graphqlURL, toThread, type Thread, type ThreadNode } from "./github"
 import type { FetchLike } from "./deps"
 
 /** A tiny fetch router: matches on URL substring, returns canned Response. */
@@ -291,6 +291,37 @@ describe("failure paths", () => {
     const fetch: FetchLike = () => Promise.reject(new Error("network down"))
     const c = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
     await expectReject(c.listThreads("o", "r", 5), /network down/)
+  })
+})
+
+describe("graphqlURL", () => {
+  test("default base → /graphql", () => {
+    expect(graphqlURL("https://api.github.com")).toBe("https://api.github.com/graphql")
+  })
+  test("GHES /api/v3 base → /api/graphql (not /api/v3/graphql)", () => {
+    expect(graphqlURL("https://github.example/api/v3")).toBe("https://github.example/api/graphql")
+  })
+})
+
+describe("graphql endpoint routing (via listThreads)", () => {
+  const emptyData = {
+    repository: {
+      pullRequest: {
+        reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+      },
+    },
+  }
+  test("default base posts to api.github.com/graphql", async () => {
+    const { fetch, calls } = fakeFetch([{ match: "/graphql", respond: () => jsonResponse({ data: emptyData }) }])
+    const c = new GithubClient({ token: "tok", apiBase: "https://api.github.com", fetch })
+    await c.listThreads("o", "r", 5)
+    expect(calls[0]?.url).toBe("https://api.github.com/graphql")
+  })
+  test("GHES base posts to <host>/api/graphql", async () => {
+    const { fetch, calls } = fakeFetch([{ match: "/graphql", respond: () => jsonResponse({ data: emptyData }) }])
+    const c = new GithubClient({ token: "tok", apiBase: "https://github.example/api/v3", fetch })
+    await c.listThreads("o", "r", 5)
+    expect(calls[0]?.url).toBe("https://github.example/api/graphql")
   })
 })
 

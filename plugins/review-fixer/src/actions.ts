@@ -34,7 +34,9 @@ export async function runAction(
   const token = await resolveToken(deps)
   // plugin-only adaptation — Go's CLI exposes this via `-api-base`,
   // but the opencode tool surface has no flags, so we fall back to env. Set
-  // GITHUB_API_BASE to point at GitHub Enterprise (e.g. https://github.example/api/v3).
+  // GITHUB_API_BASE to the GHES REST base (e.g. https://github.example/api/v3).
+  // REST calls hit that base directly; GraphQL is remapped from the trailing
+  // `/api/v3` to `/api/graphql` (see graphqlURL in github.ts).
   // Trust note: GITHUB_API_BASE is user-controlled and the bearer token is sent
   // to whatever host it names (defaults to api.github.com). Same trust model as
   // the old Go `-api-base` flag — no extra validation here by design.

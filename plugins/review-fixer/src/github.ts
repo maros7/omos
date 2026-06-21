@@ -104,6 +104,19 @@ function parseJSON(text: string): unknown {
 }
 
 /**
+ * graphqlURL — derive the GraphQL endpoint from the REST apiBase. GitHub
+ * Enterprise (GHES) splits the two: REST lives at `<host>/api/v3` while GraphQL
+ * lives at `<host>/api/graphql` (NOT `/api/v3/graphql`). For the default
+ * `https://api.github.com` (and any non-GHES base) we just append `/graphql`.
+ */
+export function graphqlURL(apiBase: string): string {
+  if (apiBase.endsWith("/api/v3")) {
+    return `${apiBase.slice(0, -"/api/v3".length)}/api/graphql`
+  }
+  return `${apiBase}/graphql`
+}
+
+/**
  * snippet — trim + cap a body to MAX_SNIPPET_BYTES UTF-8 bytes. Identical to Go
  * client.go:123 for ASCII (all real GitHub error envelopes). Where Go raw-slices
  * `s[:200]` and could split a multi-byte rune, this uses the rune-safe `clip`
@@ -188,7 +201,7 @@ export class GithubClient {
     variables: Record<string, unknown>,
     allowNullData = false,
   ): Promise<T> {
-    const url = `${this.d.apiBase}/graphql`
+    const url = graphqlURL(this.d.apiBase)
     const res = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: this.headers(true),

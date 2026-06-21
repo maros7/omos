@@ -57,8 +57,17 @@ export function defaultDeps(): Deps {
         child.stdout.on("data", (d: Buffer) => {
           stdout += d.toString("utf8")
         })
-        child.on("error", () => resolve({ stdout, exitCode: 1 }))
-        child.on("close", (code) => resolve({ stdout, exitCode: code ?? 1 }))
+        // Some platforms can emit both `error` and `close` for one process.
+        // Guard so the promise settles exactly once; `.once` keeps each terminal
+        // handler from firing twice on its own.
+        let settled = false
+        const settle = (result: RunResult): void => {
+          if (settled) return
+          settled = true
+          resolve(result)
+        }
+        child.once("error", () => settle({ stdout, exitCode: 1 }))
+        child.once("close", (code) => settle({ stdout, exitCode: code ?? 1 }))
       }),
   }
 }

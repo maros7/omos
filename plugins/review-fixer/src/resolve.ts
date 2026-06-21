@@ -5,9 +5,12 @@ import type { Deps } from "./deps"
 
 /** Resolve a GitHub token: flag → GH_TOKEN → GITHUB_TOKEN → `gh auth token`. */
 export async function resolveToken(deps: Deps, flagToken?: string): Promise<string> {
-  if (flagToken?.trim()) return flagToken
-  if (deps.env.GH_TOKEN?.trim()) return deps.env.GH_TOKEN
-  if (deps.env.GITHUB_TOKEN?.trim()) return deps.env.GITHUB_TOKEN
+  // Return the TRIMMED value for every source: a token with surrounding
+  // whitespace passes a `.trim()` presence check but breaks auth if sent raw.
+  // Whitespace-only inputs trim to "" → falsy → treated as absent (skipped).
+  if (flagToken?.trim()) return flagToken.trim()
+  if (deps.env.GH_TOKEN?.trim()) return deps.env.GH_TOKEN.trim()
+  if (deps.env.GITHUB_TOKEN?.trim()) return deps.env.GITHUB_TOKEN.trim()
   const { stdout, exitCode } = await deps.runCmd(["gh", "auth", "token"])
   if (exitCode !== 0) throw new Error("resolve token: gh auth token failed")
   const tok = stdout.trim()
