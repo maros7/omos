@@ -24,6 +24,11 @@ describe("rewriteGoCommand", () => {
       "CGO_ENABLED=0 GOOS=linux 'gogate' go build ./...",
     ],
     ["GOWORK=off golangci-lint run ./...", "GOWORK=off 'gogate' golangci-lint run ./..."],
+    // Value containing `=` must not be swallowed: the env peel stops at the first
+    // whitespace, leaving `go build` as the recognized command.
+    ["GOFLAGS=-mod=mod go build ./...", "GOFLAGS=-mod=mod 'gogate' go build ./..."],
+    // Empty value is a valid POSIX assignment.
+    ["FOO= go build ./...", "FOO= 'gogate' go build ./..."],
   ])("%s -> %s", (cmd, want) => {
     expect(rewriteGoCommand(cmd, BIN)).toBe(want)
   })
@@ -68,6 +73,11 @@ describe("rewriteGoCommand", () => {
     ["subshell", "go test $(ls)"],
     ["env prefix to a non-go command", "FOO=bar ls -la"],
     ["bare env assignment", "FOO=bar"],
+    // Env peel must not defeat the already-gogate double-wrap guard.
+    ["env prefix to already gogate", "GOWORK=off gogate go test ./..."],
+    // Quoted-space value is deliberately not supported: the peel stops at the
+    // space, leaving a leftover quote so RECOGNIZED fails -> passthrough.
+    ["env value with quoted space", 'FOO="a b" go build ./...'],
     ["already gogate", "gogate go test ./..."],
     ["already gogate path", "/usr/local/bin/gogate go test ./..."],
     ["already gogate.exe", "gogate.exe go test ./..."],

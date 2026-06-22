@@ -10,10 +10,14 @@ const SHELL_META = /[|&;<>`\n()]|\$\(/
 // vet args are fine to forward.
 const RECOGNIZED = /^(go (build|test|vet)|golangci-lint run)\b/
 
-// One or more leading POSIX env-var assignments (`NAME=VALUE`, VALUE has no
-// unquoted whitespace) plus the whitespace separating them from the command.
-// Lets us wrap `GOWORK=off go build ./...` (Go workspaces) and CGO toggles like
-// `CGO_ENABLED=0 go test ./...` while leaving a bare `go build` untouched.
+// One or more leading POSIX env-var assignments (`NAME=VALUE`, VALUE is a single
+// shell word — no whitespace, even when quoted, so `FOO="a b"` is not recognized
+// and passes through unwrapped) plus the whitespace separating them from the
+// command. Lets us wrap `GOWORK=off go build ./...` (Go workspaces) and CGO
+// toggles like `CGO_ENABLED=0 go test ./...` while leaving a bare `go build`
+// untouched. Once wrapped, the env scopes the entire gate (build, test, lint),
+// not just the single subcommand it preceded — the desired whole-gate behavior
+// for GOWORK/CGO_ENABLED/GOOS.
 const LEADING_ENV = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*)(?:\s+[A-Za-z_][A-Za-z0-9_]*=\S*)*\s*/
 
 // rewriteGoCommand returns "<binPrefix> <gogateFlags> <cmd>" for a recognized,
