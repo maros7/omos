@@ -288,6 +288,30 @@ describe("resolveBinary — cold install", () => {
     expect(authHeader).toBe("Bearer tok")
   })
 
+  test("default (no GOGATE_VERSION) resolves the plugin's own opencode-gogate-v<version> tag", async () => {
+    const pkg: unknown = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"))
+    const ownVersion =
+      typeof pkg === "object" && pkg !== null && "version" in pkg && typeof pkg.version === "string"
+        ? pkg.version
+        : ""
+    const assetName = "gogate_linux_amd64.tar.gz"
+    let calledUrl = ""
+    const router = installFetch({ assetName, digest: "deadbeef" })
+    const deps = makeDeps({
+      env: {},
+      fetch: (input) => {
+        const url = inputToURL(input)
+        if (url.includes("api.github.com")) calledUrl = url
+        return router(input)
+      },
+    })
+    await resolveBinary("/proj", deps)
+    expect(calledUrl).toBe(
+      `https://api.github.com/repos/maros7/omos/releases/tags/opencode-gogate-v${ownVersion}`,
+    )
+    expect(calledUrl).not.toContain("/releases/latest")
+  })
+
   test("falls back to pinned tag when the API omits tag_name", async () => {
     const assetName = "gogate_linux_amd64.tar.gz"
     const deps = makeDeps({

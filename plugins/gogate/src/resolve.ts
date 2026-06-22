@@ -1,9 +1,24 @@
-import { existsSync, mkdirSync, writeFileSync, chmodSync, unlinkSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync, chmodSync, unlinkSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { createHash } from "node:crypto"
 import { join, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const REPO = "maros7/omos"
+
+// The plugin's own version, read from the shipped package.json (npm ships src/*.ts
+// raw alongside package.json at the package root, so ../package.json resolves at
+// runtime). tsconfig doesn't enable resolveJsonModule, so we read+parse via fs
+// rather than importing the JSON. Used to derive the default release tag.
+function readOwnVersion(): string {
+  const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url))
+  const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"))
+  if (typeof parsed === "object" && parsed !== null && "version" in parsed) {
+    const v = parsed.version
+    if (typeof v === "string") return v
+  }
+  throw new Error(`could not read version from ${pkgPath}`)
+}
 
 /**
  * Minimal fetch signature. We don't need preconnect/keepalive/etc — just the
@@ -209,13 +224,17 @@ interface Release {
   assets: ReleaseAsset[]
 }
 
-// fetchRelease resolves the release to install: a pinned tag via GOGATE_VERSION,
-// otherwise "latest".
+// fetchRelease resolves the release to install: a pinned tag via GOGATE_VERSION
+// (raw tag passthrough), otherwise the release for this plugin's OWN version
+// (tag opencode-gogate-v<version>). We deliberately do NOT use /releases/latest:
+// this is a monorepo cutting other plugins' releases too, so the repo-wide latest
+// can be a non-gogate release with no gogate asset.
 async function fetchRelease(deps: ResolveDeps): Promise<Release> {
   const pinned = deps.env.GOGATE_VERSION
+  const defaultTag = `opencode-gogate-v${readOwnVersion()}`
   const url = pinned
     ? `https://api.github.com/repos/${REPO}/releases/tags/${pinned}`
-    : `https://api.github.com/repos/${REPO}/releases/latest`
+    : `https://api.github.com/repos/${REPO}/releases/tags/${defaultTag}`
 
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -234,7 +253,7 @@ async function fetchRelease(deps: ResolveDeps): Promise<Release> {
   // guards (no `as`) so we never smuggle an unvalidated shape past the parser.
   const json: unknown = await res.json()
   const envelope = parseReleaseEnvelope(json)
-  return { tag: envelope.tag_name ?? pinned ?? "latest", assets: envelope.assets ?? [] }
+  return { tag: envelope.tag_name ?? pinned ?? defaultTag, assets: envelope.assets ?? [] }
 }
 
 /** GitHub release envelope shape we read in fetchRelease. */

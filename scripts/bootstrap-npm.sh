@@ -16,10 +16,7 @@
 # THE PACKAGES:
 #   opencode-tripwire       (plugins/tripwire)      — release-please
 #   opencode-review-fixer   (plugins/review-fixer)  — release-please
-#
-#   NOTE: gogate no longer ships an npm package — its OpenCode plugin
-#   auto-downloads + caches the prebuilt binary from the GitHub Release on first
-#   use, so there is nothing to bootstrap for gogate.
+#   opencode-gogate         (plugins/gogate)        — release-please
 #
 # USAGE:
 #   export NODE_AUTH_TOKEN=<temporary npm automation token>
@@ -122,7 +119,32 @@ if [[ $rf_rc -ne 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Follow-up checklist
+# 4. opencode-gogate
+# ---------------------------------------------------------------------------
+#
+# Same idea as the others: publish whatever version is in plugins/gogate/
+# package.json (currently 0.0.0) PURELY to create the package on the registry so
+# a Trusted Publisher can be attached. The real publishes come later from CI
+# (release-please.yml) once the release-please PR is merged. gogate ships raw
+# src/*.ts — no build step — so a plain `npm publish` from its dir is all that's
+# needed.
+echo "==> Publishing opencode-gogate (to create the package) ..."
+# Idempotent: if this exact version is already published, npm errors with
+# E409 / EPUBLISHCONFLICT ("cannot publish over previously published version").
+# Tolerate ONLY that case (skip + continue); any other npm failure stays fatal.
+gogate_out=$(cd plugins/gogate && npm publish --access public 2>&1) && gogate_rc=0 || gogate_rc=$?
+printf '%s\n' "$gogate_out"
+if [[ $gogate_rc -ne 0 ]]; then
+  if grep -qiE 'E409|EPUBLISHCONFLICT|cannot publish over|previously published version' <<<"$gogate_out"; then
+    echo "⏭  opencode-gogate already published, skipping"
+  else
+    echo "ERROR: opencode-gogate publish failed (exit $gogate_rc)." >&2
+    exit "$gogate_rc"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Follow-up checklist
 # ---------------------------------------------------------------------------
 cat <<'EOF'
 
@@ -141,6 +163,7 @@ The packages and their workflow filename:
 
   opencode-tripwire         -> release-please.yml
   opencode-review-fixer     -> release-please.yml
+  opencode-gogate           -> release-please.yml
 
 FINALLY: delete the TEMPORARY npm token you used for this bootstrap
   (npmjs.com -> Access Tokens). After this, CI publishes tokenlessly via OIDC.
