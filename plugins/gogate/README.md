@@ -185,17 +185,19 @@ golangci-lint, so `-short` skips them and they skip themselves when it isn't ins
 ## Distribution
 
 Prebuilt binaries are built by **GoReleaser** (`.goreleaser.yaml`) for darwin/linux/windows
-× amd64/arm64 (`CGO_ENABLED=0`, static). Pushing a `v*` tag runs
-`.github/workflows/release.yml`, which uploads the archives plus `checksums.txt` to a
-**GitHub Release**. The Go binary itself is not shipped via npm — the TS plugin
-(`opencode-gogate`) is published to npm, and at runtime it auto-downloads +
-caches the matching binary from the GitHub Release on first use. A best-effort
+× amd64/arm64 (`CGO_ENABLED=0`, static). Releases are managed by **release-please**
+(component `opencode-gogate`): merging its release PR tags `opencode-gogate-v*` and creates
+a **GitHub Release**, to which CI builds and uploads the archives plus `checksums.txt`. The
+Go binary itself is not shipped via npm — the TS plugin (`opencode-gogate`) is published to
+npm (OIDC Trusted Publishing), and at runtime it auto-downloads + caches the matching binary
+from the GitHub Release on first use. A best-effort
 `postinstall` hook also installs the bundled `SKILL.md` to
 `~/.config/opencode/skills/gogate/` so the model prefers `gogate` over running
 `go build`/`go test`/`golangci-lint` separately.
 
-On first use the plugin downloads the binary matching your OS/arch from the **latest**
-GitHub Release, verifies it against `checksums.txt` (SHA-256), and caches it under
+On first use the plugin downloads the binary matching your OS/arch from the GitHub Release
+for the plugin's own version (tag `opencode-gogate-v<version>`), verifies it against
+`checksums.txt` (SHA-256), and caches it under
 `$XDG_CACHE_HOME/gogate` (or `~/.cache/gogate`). A cache entry is only trusted once a
 `.ok` success marker is written next to the binary — written **last**, after the checksum,
 extraction, and `chmod` all succeed — so an interrupted install is never reused. After a
@@ -209,15 +211,17 @@ successful install it runs entirely from the cache — no per-call network.
    present (no network).
 4. **download + verify + extract + chmod + write marker** the release binary.
 
-Set **`GOGATE_VERSION`** to pin a specific release tag (e.g. `v1.2.3`). A pinned version
-is cached under its own tag-keyed path (`<cache>/bin/<version>/gogate`), so setting or
-changing the pin forces a download of exactly that tag instead of reusing the unpinned
-"latest" binary. Unpinned, the latest release is cached at `<cache>/bin/gogate`. If
+By default the plugin resolves the release matching its **own version** (tag
+`opencode-gogate-v<version>`), so the binary always matches the installed plugin. Set
+**`GOGATE_VERSION`** to pin a different release tag (e.g. `opencode-gogate-v1.2.3`). A
+pinned version is cached under its own tag-keyed path (`<cache>/bin/<version>/gogate`), so
+setting or changing the pin forces a download of exactly that tag instead of reusing the
+default binary. Unpinned, the version-matched release is cached at `<cache>/bin/gogate`. If
 `GITHUB_TOKEN` is set it is sent as a bearer token on the GitHub API call (useful to avoid
 rate limits).
 
-To force a re-install (e.g. after a corrupted download or to upgrade the unpinned
-"latest"): delete the cache directory (`$XDG_CACHE_HOME/gogate` or `~/.cache/gogate`) or
+To force a re-install (e.g. after a corrupted download or to re-fetch the unpinned
+binary): delete the cache directory (`$XDG_CACHE_HOME/gogate` or `~/.cache/gogate`) or
 just remove the `<cachedBin>.ok` marker, and the next run re-downloads and re-verifies.
 
 ## Requirements

@@ -57,5 +57,5 @@ Enforced by ESLint + typescript-eslint (all three TS plugins).
 
 ## Releases
 
-- gogate: on tag `v*`, GoReleaser builds + uploads the binary to the GitHub Release, and the TS plugin is published to npm via OIDC Trusted Publishing; the opencode plugin auto-downloads + caches the matching binary from that Release on first use.
+- gogate: release-please (`opencode-gogate-v*`); on release, GoReleaser builds the binary in CI and attaches it to the release-please GitHub Release, and the TS plugin is published to npm via OIDC Trusted Publishing; the opencode plugin auto-downloads + caches the matching binary from that Release on first use.
 - review-fixer & tripwire: release-please (`opencode-review-fixer-v*` / `opencode-tripwire-v*`); pure-TS, published to npm via OIDC Trusted Publishing.

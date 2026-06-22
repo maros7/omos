@@ -31,6 +31,19 @@ function makeResponse(opts: {
 const ARCHIVE_URL = "https://dl.example/archive"
 const CHECKSUMS_URL = "https://dl.example/checksums"
 
+// The plugin's own version, read from package.json the same way resolve.ts does, so
+// these tests stay version-agnostic. DEFAULT_TAG is the unpinned/default release tag
+// (opencode-gogate-v<version>) and DEFAULT_TAG_DIR the cache subdir keyed by it.
+function readOwnVersion(): string {
+  const pkg: unknown = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"))
+  if (typeof pkg === "object" && pkg !== null && "version" in pkg && typeof pkg.version === "string") {
+    return pkg.version
+  }
+  throw new Error("could not read version from package.json")
+}
+const DEFAULT_TAG = `opencode-gogate-v${readOwnVersion()}`
+const DEFAULT_TAG_DIR = DEFAULT_TAG.replace(/[^A-Za-z0-9._-]/g, "-")
+
 /** Resolve `await expect(p).rejects.toThrow(re)` without an `await` on bun's
  *  non-Promise `.rejects` matcher (which trips `await-thenable`). */
 async function expectReject(p: Promise<unknown>, re: RegExp): Promise<void> {
@@ -143,7 +156,7 @@ describe("resolveBinary — resolution order", () => {
   })
 
   test("3. cache hit (binary AND .ok marker present) returns cached binary, no network", async () => {
-    const cached = join("/xdg", "gogate", "bin", "gogate")
+    const cached = join("/xdg", "gogate", "bin", DEFAULT_TAG_DIR, "gogate")
     const marker = `${cached}.ok`
     let fetched = false
     const deps = makeDeps({
@@ -159,7 +172,7 @@ describe("resolveBinary — resolution order", () => {
   })
 
   test("3b. BUG A: binary present but .ok marker ABSENT triggers a fresh install", async () => {
-    const cachedBin = join("/home/u", ".cache", "gogate", "bin", "gogate")
+    const cachedBin = join("/home/u", ".cache", "gogate", "bin", DEFAULT_TAG_DIR, "gogate")
     const marker = `${cachedBin}.ok`
     const assetName = "gogate_linux_amd64.tar.gz"
     let fetched = false
@@ -182,7 +195,7 @@ describe("resolveBinary — resolution order", () => {
     // `deps.env` isolates this from process.env, so no save/restore is required: this
     // exercises the cacheDir() lookup directly. The default absolute cached bin lives
     // under the injected homedir, NOT under "" (which would be a relative "gogate/bin/...").
-    const defaultCached = join("/home/u", ".cache", "gogate", "bin", "gogate")
+    const defaultCached = join("/home/u", ".cache", "gogate", "bin", DEFAULT_TAG_DIR, "gogate")
     const defaultMarker = `${defaultCached}.ok`
     let fetched = false
     const deps = makeDeps({
@@ -209,8 +222,8 @@ describe("resolveBinary — cold install", () => {
       sha256: () => "ABCDEF", // upper-case to exercise case-insensitive compare
       fetch: installFetch({ assetName, digest: "abcdef" }),
     })
-    const cachedBin = join("/home/u", ".cache", "gogate", "bin", "gogate")
-    const archivePath = join("/home/u", ".cache", "gogate", "bin", assetName)
+    const cachedBin = join("/home/u", ".cache", "gogate", "bin", DEFAULT_TAG_DIR, "gogate")
+    const archivePath = join("/home/u", ".cache", "gogate", "bin", DEFAULT_TAG_DIR, assetName)
     const marker = `${cachedBin}.ok`
     expect(await resolveBinary("/proj", deps)).toEqual([cachedBin])
 
@@ -219,7 +232,7 @@ describe("resolveBinary — cold install", () => {
     expect(deps.extracts).toEqual([
       {
         archivePath,
-        destDir: join("/home/u", ".cache", "gogate", "bin"),
+        destDir: join("/home/u", ".cache", "gogate", "bin", DEFAULT_TAG_DIR),
         isZip: false,
       },
     ])
@@ -238,8 +251,8 @@ describe("resolveBinary — cold install", () => {
       env: {},
       fetch: installFetch({ assetName, digest: "deadbeef" }),
     })
-    const cachedBin = join("/home/u", ".cache", "gogate", "bin", "gogate")
-    const archivePath = join("/home/u", ".cache", "gogate", "bin", assetName)
+    const cachedBin = join("/home/u", ".cache", "gogate", "bin", DEFAULT_TAG_DIR, "gogate")
+    const archivePath = join("/home/u", ".cache", "gogate", "bin", DEFAULT_TAG_DIR, assetName)
     const marker = `${cachedBin}.ok`
     expect(await resolveBinary("/proj", deps)).toEqual([cachedBin])
 
@@ -261,7 +274,7 @@ describe("resolveBinary — cold install", () => {
       arch: "arm64",
       fetch: installFetch({ assetName, digest: "deadbeef" }),
     })
-    const cachedBin = join("/home/u", ".cache", "gogate", "bin", "gogate.exe")
+    const cachedBin = join("/home/u", ".cache", "gogate", "bin", DEFAULT_TAG_DIR, "gogate.exe")
     expect(await resolveBinary("/proj", deps)).toEqual([cachedBin])
     expect(deps.extracts[0].isZip).toBe(true)
   })
@@ -286,6 +299,25 @@ describe("resolveBinary — cold install", () => {
     await resolveBinary("/proj", deps)
     expect(calledUrl).toBe("https://api.github.com/repos/maros7/omos/releases/tags/v9.9.9")
     expect(authHeader).toBe("Bearer tok")
+  })
+
+  test("default (no GOGATE_VERSION) resolves the plugin's own opencode-gogate-v<version> tag", async () => {
+    const assetName = "gogate_linux_amd64.tar.gz"
+    let calledUrl = ""
+    const router = installFetch({ assetName, digest: "deadbeef" })
+    const deps = makeDeps({
+      env: {},
+      fetch: (input) => {
+        const url = inputToURL(input)
+        if (url.includes("api.github.com")) calledUrl = url
+        return router(input)
+      },
+    })
+    await resolveBinary("/proj", deps)
+    expect(calledUrl).toBe(
+      `https://api.github.com/repos/maros7/omos/releases/tags/${DEFAULT_TAG}`,
+    )
+    expect(calledUrl).not.toContain("/releases/latest")
   })
 
   test("falls back to pinned tag when the API omits tag_name", async () => {
