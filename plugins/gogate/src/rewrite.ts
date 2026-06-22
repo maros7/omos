@@ -68,15 +68,26 @@ export function rewriteGoCommand(
 // (e.g. `2>&1`) is discarded with it (harmless — gogate merges stderr).
 function computeDropped(segments: string[], wrapped: (string | null)[]): Set<number> {
   const dropped = new Set<number>()
-  const seen = new Set<string>()
+  let seen = new Set<string>()
   for (let i = 0; i < segments.length; i += 1) {
-    if (wrapped[i] === null) continue
+    if (wrapped[i] === null) {
+      if (changesCwd(segments[i])) seen = new Set<string>()
+      continue
+    }
     const key = segmentTarget(segments[i])
     if (key === null) continue
     if (seen.has(key)) dropped.add(i)
     else seen.add(key)
   }
   return dropped
+}
+
+// changesCwd reports whether a (non-recognized) segment changes the shell working directory,
+// which invalidates any earlier same-operand dedup keys (e.g. `./...` now refers to a new dir).
+function changesCwd(seg: string): boolean {
+  const rest = seg.trim().replace(LEADING_ENV, "").replace(LEADING_RTK, "")
+  const leader = rest.split(/\s+/)[0]
+  return leader === "cd" || leader === "pushd" || leader === "popd"
 }
 
 // segmentTarget builds a dedup key for a recognized segment: its env prefix plus the sorted

@@ -112,10 +112,12 @@ describe("rewriteGoCommand", () => {
     )
   })
 
-  // DEDUP: multiple recognized segments targeting the SAME directory collapse to ONE
-  // gogate invocation (it gates the whole package regardless of subcommand). Collapse is
-  // conservative — a duplicate is only dropped if its segment has no redirect and does not
-  // feed a pipe; non-recognized segments (echo) are never dropped.
+  // DEDUP: multiple recognized segments targeting the SAME directory ALWAYS collapse to ONE
+  // gogate invocation (it gates the whole package regardless of subcommand). The operator
+  // before a dropped duplicate is removed, so a trailing pipe (`| tail`) reconnects to the
+  // surviving gate, and a dropped duplicate's own inline redirect (e.g. `2>&1`) is discarded
+  // with it. Collapse does NOT cross a `cd`/`pushd`/`popd` segment (it changes cwd, so `./...`
+  // refers to a new dir); a non-cwd-changing segment like `echo` does not block collapse.
   test.each([
     ["go build ./... && golangci-lint run ./...", "'gogate' go build ./..."],
     [
@@ -139,6 +141,15 @@ describe("rewriteGoCommand", () => {
     // reconnects to the surviving gate.
     ["go build ./... && go test ./... | tail", "'gogate' go build ./... | tail"],
     ["go build ./... && go test ./... 2>&1 | tail -20", "'gogate' go build ./... | tail -20"],
+    // cd/pushd/popd between same-operand gates blocks collapse (different cwd).
+    [
+      "cd x && go build ./... && cd y && go build ./...",
+      "cd x && 'gogate' go build ./... && cd y && 'gogate' go build ./...",
+    ],
+    [
+      "go build ./... && cd y && go test ./...",
+      "'gogate' go build ./... && cd y && 'gogate' go test ./...",
+    ],
   ])("dedups: %s", (cmd, want) => {
     expect(rewriteGoCommand(cmd, BIN)).toBe(want)
   })
