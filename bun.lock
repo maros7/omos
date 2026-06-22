@@ -8,14 +8,15 @@
     "plugins/gogate": {
       "name": "opencode-gogate",
       "version": "0.1.0",
-      "dependencies": {
-        "@opencode-ai/plugin": "1.17.8",
-      },
       "devDependencies": {
+        "@opencode-ai/plugin": "1.17.8",
         "@types/bun": "^1.3.14",
         "eslint": "10.5.0",
         "typescript": "6.0.3",
         "typescript-eslint": "^8.61.1",
+      },
+      "peerDependencies": {
+        "@opencode-ai/plugin": ">=1.14.0",
       },
     },
     "plugins/review-fixer": {
