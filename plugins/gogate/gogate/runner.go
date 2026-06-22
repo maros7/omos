@@ -32,6 +32,10 @@ type execRunner struct{}
 func (execRunner) Run(ctx context.Context, dir, name string, args ...string) Result {
 	// gogate's purpose is to run the go and golangci-lint toolchain; the command and
 	// args are gogate's own, not untrusted input.
+	// cmd.Env is intentionally left nil so the child process inherits this binary's
+	// environment. This is load-bearing for env-prefix command rewrites (e.g.
+	// "GOWORK=off gogate go build ./..."): the variable reaches the spawned
+	// go/golangci-lint toolchain. Do not set cmd.Env without forwarding os.Environ().
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: runs the toolchain by design
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer

@@ -13,6 +13,17 @@ describe("rewriteGoCommand", () => {
       "golangci-lint run --config=.golangci.yml",
       "'gogate' golangci-lint run --config=.golangci.yml",
     ],
+    // Go-workspace / multi-module commands are always GOWORK=off-prefixed; the
+    // env assignment must stay in front of the gogate binary so it is exported
+    // into the `go` subprocesses gogate spawns.
+    ["GOWORK=off go build ./...", "GOWORK=off 'gogate' go build ./..."],
+    ["GOWORK=off go test -race -count=1 ./...", "GOWORK=off 'gogate' go test -race -count=1 ./..."],
+    ["CGO_ENABLED=0 go test ./...", "CGO_ENABLED=0 'gogate' go test ./..."],
+    [
+      "CGO_ENABLED=0 GOOS=linux go build ./...",
+      "CGO_ENABLED=0 GOOS=linux 'gogate' go build ./...",
+    ],
+    ["GOWORK=off golangci-lint run ./...", "GOWORK=off 'gogate' golangci-lint run ./..."],
   ])("%s -> %s", (cmd, want) => {
     expect(rewriteGoCommand(cmd, BIN)).toBe(want)
   })
@@ -55,7 +66,8 @@ describe("rewriteGoCommand", () => {
     ["chain", "go build ./... && go test ./..."],
     ["redirect", "go test ./... > out.txt"],
     ["subshell", "go test $(ls)"],
-    ["env prefix", "CGO_ENABLED=0 go build ./..."],
+    ["env prefix to a non-go command", "FOO=bar ls -la"],
+    ["bare env assignment", "FOO=bar"],
     ["already gogate", "gogate go test ./..."],
     ["already gogate path", "/usr/local/bin/gogate go test ./..."],
     ["already gogate.exe", "gogate.exe go test ./..."],
