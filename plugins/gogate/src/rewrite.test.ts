@@ -66,18 +66,69 @@ describe("rewriteGoCommand", () => {
     expect(rewriteGoCommand("go test ./gogate/", BIN)).toBe("'gogate' go test ./gogate/")
   })
 
+  // Recognized commands inside shell pipes/redirects/chains are wrapped per-segment
+  // while the surrounding shell structure is reassembled byte-exact. A leading `rtk`
+  // toolchain-wrapper prefix is stripped (gogate replaces rtk).
   test.each([
-    ["pipe", "go test ./... | tee out.txt"],
-    ["chain", "go build ./... && go test ./..."],
-    ["redirect", "go test ./... > out.txt"],
+    [
+      "cd /abs/path/plugin && GOWORK=off rtk go build ./... && GOWORK=off rtk go test -run TestBigQuery_generateMaterializedView ./protoc-gen-bigquery/ 2>&1 | tail -20",
+      "cd /abs/path/plugin && GOWORK=off 'gogate' go build ./... && GOWORK=off 'gogate' go test -run TestBigQuery_generateMaterializedView ./protoc-gen-bigquery/ 2>&1 | tail -20",
+    ],
+    [
+      'GOWORK=off rtk go build ./... 2>&1 | head -30; echo "EXIT=$?"',
+      "GOWORK=off 'gogate' go build ./... 2>&1 | head -30; echo \"EXIT=$?\"",
+    ],
+    ["rtk go test ./...", "'gogate' go test ./..."],
+    ["rtk golangci-lint run ./...", "'gogate' golangci-lint run ./..."],
+    ["GOWORK=off rtk go build ./...", "GOWORK=off 'gogate' go build ./..."],
+    ["go test ./... | tail -20", "'gogate' go test ./... | tail -20"],
+    ["go test ./... 2>&1", "'gogate' go test ./... 2>&1"],
+    ["cd pkg && go test ./...", "cd pkg && 'gogate' go test ./..."],
+    ["go build ./... ; echo done", "'gogate' go build ./... ; echo done"],
+    [
+      "go test -run '^(TestA|TestB)$' ./...",
+      "'gogate' go test -run '^(TestA|TestB)$' ./...",
+    ],
+    ['go test -run "A|B" ./...', "'gogate' go test -run \"A|B\" ./..."],
+    ["go test ./... && go build ./...", "'gogate' go test ./... && 'gogate' go build ./..."],
+    ["cd x && rtk go test -run Y ./... 2>&1 | head", "cd x && 'gogate' go test -run Y ./... 2>&1 | head"],
+    ["go test ./... > out.txt", "'gogate' go test ./... > out.txt"],
+    ["go test ./... | tee out.txt", "'gogate' go test ./... | tee out.txt"],
+    // Mixed chain: a `go build` AND a `golangci-lint run` segment, both rtk- and
+    // env-prefixed, with a trailing redirect+pipe — each recognized segment is
+    // independently rtk-stripped and gogate-wrapped.
+    [
+      "cd /Users/marcus.rosen/git/range360-260401/.slim/worktrees/bigquery-view-schema-gen/plugin && GOWORK=off rtk go build ./... && GOWORK=off rtk golangci-lint run ./protoc-gen-bigquery/ 2>&1 | tail -15",
+      "cd /Users/marcus.rosen/git/range360-260401/.slim/worktrees/bigquery-view-schema-gen/plugin && GOWORK=off 'gogate' go build ./... && GOWORK=off 'gogate' golangci-lint run ./protoc-gen-bigquery/ 2>&1 | tail -15",
+    ],
+  ])("wraps: %s", (cmd, want) => {
+    expect(rewriteGoCommand(cmd, BIN)).toBe(want)
+  })
+
+  test("wraps each recognized segment of a chain with gogate flags", () => {
+    expect(rewriteGoCommand("go build ./... && go test ./...", BIN, ["-rerun-fails=2"])).toBe(
+      "'gogate' '-rerun-fails=2' go build ./... && 'gogate' '-rerun-fails=2' go test ./...",
+    )
+  })
+
+  test.each([
     ["subshell", "go test $(ls)"],
+    ["command substitution in quoted flag", 'go test -run "$(echo X)" ./...'],
+    ["backtick substitution", "go test -run `date` ./..."],
+    ["paren subshell", "(go test ./...)"],
+    ["process substitution", "go test ./... > >(tee log)"],
+    ["background", "go test ./... &"],
+    ["background then command", "go test ./... & echo done"],
+    ["newline", "go build\ngo test"],
+    ["unterminated quote", 'go test -run "A ./...'],
+    ["chain with no recognized segment", "cd x && ls && echo y"],
+    ["rtk non-go command", "rtk deploy prod"],
+    ["double semicolon", "foo ;; bar"],
+    ["env value with quoted space", 'FOO="a b" go build ./...'],
     ["env prefix to a non-go command", "FOO=bar ls -la"],
     ["bare env assignment", "FOO=bar"],
     // Env peel must not defeat the already-gogate double-wrap guard.
     ["env prefix to already gogate", "GOWORK=off gogate go test ./..."],
-    // Quoted-space value is deliberately not supported: the peel stops at the
-    // space, leaving a leftover quote so RECOGNIZED fails -> passthrough.
-    ["env value with quoted space", 'FOO="a b" go build ./...'],
     ["already gogate", "gogate go test ./..."],
     ["already gogate path", "/usr/local/bin/gogate go test ./..."],
     ["already gogate.exe", "gogate.exe go test ./..."],

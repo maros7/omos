@@ -45,23 +45,40 @@ func hasCoverFlag(extra []string) bool {
 	return false
 }
 
+// hasRunFlag reports whether the user scoped the run with -run/--run (space or = form).
+// Mirrors the shapes stripRunFlag recognizes. A -run filter means gogate's injected
+// coverprofile reflects only the matched tests, so the per-function "uncovered" breakdown
+// would misleadingly flag every untargeted function — we drop it for such runs.
+func hasRunFlag(extra []string) bool {
+	for _, a := range extra {
+		if a == "-run" || a == "--run" ||
+			strings.HasPrefix(a, "-run=") || strings.HasPrefix(a, "--run=") {
+			return true
+		}
+	}
+
+	return false
+}
+
 // coverage builds the coverage report: per-package percentages from the test output,
 // plus an accurate statement-weighted total from `go tool cover -func` (when gogate
 // wrote a profile). Returns nil when no package reported coverage.
-func coverage(ctx context.Context, r Runner, dir string, byPkg []PackageCoverage, profile string) *Coverage {
+func coverage(ctx context.Context, r Runner, dir string, byPkg []PackageCoverage, profile string, scoped bool) *Coverage {
 	if len(byPkg) == 0 {
 		return nil
 	}
-	cov := &Coverage{ByPackage: byPkg}
+	cov := &Coverage{ByPackage: byPkg, Scoped: scoped}
 	if profile != "" {
 		res := r.Run(ctx, dir, "go", "tool", "cover", "-func="+profile)
 		if pct, ok := parseCoverTotal(res.Stdout); ok {
 			cov.TotalPct = &pct
 		}
-		// The coverprofile carries exact per-block line ranges; read it for the uncovered
-		// lines. It's gogate's own temp file.
-		content, _ := os.ReadFile(profile) //nolint:gosec // G304: gogate-owned temp profile
-		cov.Uncovered = uncoveredFuncs(res.Stdout, string(content))
+		// On a -run-scoped run the per-function breakdown would flag every untargeted
+		// function as uncovered, so skip it; the total/per-package % stay (truthful).
+		if !scoped {
+			content, _ := os.ReadFile(profile) //nolint:gosec // G304: gogate-owned temp profile
+			cov.Uncovered = uncoveredFuncs(res.Stdout, string(content))
+		}
 	}
 
 	return cov
@@ -159,7 +176,7 @@ func runTestOnce(ctx context.Context, r Runner, dir string, extra []string) (Ste
 	step := Step{Name: StepTest, DurationMs: elapsedMs(start), Tests: &counts}
 	step.Summary = fmt.Sprintf("%d passed, %d failed, %d skipped", counts.Passed, counts.Failed, counts.Skipped)
 
-	cov := coverage(ctx, r, dir, p.Coverage, profile)
+	cov := coverage(ctx, r, dir, p.Coverage, profile, hasRunFlag(extra))
 
 	if res.TimedOut {
 		markTimedOut(&step, "test")

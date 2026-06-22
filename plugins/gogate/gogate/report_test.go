@@ -109,3 +109,24 @@ func Test_renderText(t *testing.T) {
 	assert.NotContains(t, noTotal, "coverage:")
 	assert.Contains(t, noTotal, "p  50.0%")
 }
+
+func Test_renderCoverageScoped(t *testing.T) {
+	total := 3.2
+	out := renderText(Report{OK: true, Coverage: &Coverage{
+		TotalPct:  &total,
+		Scoped:    true,
+		ByPackage: []PackageCoverage{{Package: "p", Pct: 3.2}},
+	}})
+	assert.Contains(t, out, "coverage: 3.2% (scoped to -run; not whole-package)")
+	assert.Contains(t, out, "p  3.2%")
+	assert.NotContains(t, out, "uncovered (add tests here):")
+}
+
+func Test_renderCoverageScopedNoTotal(t *testing.T) {
+	out := renderText(Report{OK: true, Coverage: &Coverage{
+		Scoped:    true,
+		ByPackage: []PackageCoverage{{Package: "p", Pct: 50.0}},
+	}})
+	assert.Contains(t, out, "coverage (scoped to -run):")
+	assert.Contains(t, out, "p  50.0%")
+}

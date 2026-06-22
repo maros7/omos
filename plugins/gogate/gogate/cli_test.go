@@ -75,6 +75,8 @@ func TestRunCLICommandRunsGate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Bytes(), &rep))
 	require.Len(t, rep.Steps, 3)
 	assert.Equal(t, StepTest, rep.Steps[1].Name)
+	require.NotNil(t, rep.Coverage)
+	assert.True(t, rep.Coverage.Scoped) // -run=X scopes the coverage report
 }
 
 func TestRunCLIJSONPretty(t *testing.T) {
