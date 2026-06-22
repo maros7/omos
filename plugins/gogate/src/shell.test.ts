@@ -64,6 +64,30 @@ describe("splitShell", () => {
     expect(splitShell("a & b")).toBeNull()
   })
 
+  test("keeps a backslash-escaped operator char as part of the segment (no split)", () => {
+    // The escaped space/pipe are consumed via the top-level backslash branch, so no
+    // split occurs and lastNonSpace sees a real non-space char before the redirect.
+    expect(splitShell("go test\\ ./x 2>&1")).toEqual({
+      segments: ["go test\\ ./x 2>&1"],
+      operators: [],
+    })
+  })
+
+  test("escaped pipe at top level does not split", () => {
+    expect(splitShell("a \\| b")).toEqual({ segments: ["a \\| b"], operators: [] })
+  })
+
+  test("honors backslash escapes inside double quotes (no split, no early return)", () => {
+    const r = splitShell('echo "a\\"b | c"')
+    expect(r?.segments).toEqual(['echo "a\\"b | c"'])
+    expect(r?.operators).toEqual([])
+  })
+
+  test("lastNonSpace returns empty when only whitespace precedes a fd-dup attempt", () => {
+    // Leading `|` with an empty buffer exercises lastNonSpace's loop-exhaustion path.
+    expect(splitShell("  | b")).toEqual({ segments: ["  ", " b"], operators: ["|"] })
+  })
+
   test.each([
     ["lone background &", "go test &"],
     ["double semicolon", "foo ;; bar"],
