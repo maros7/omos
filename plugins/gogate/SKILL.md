@@ -17,6 +17,36 @@ everything.
 - `command: "go test -run=X ./pkg/..."` — scopes the **test** step only (build +
   lint always `./...`)
 - `rerunFails: N` — re-run failed tests up to N times (flaky-test guard)
+- `directory: "plugin/"` — runs the **whole gate** (build+test+lint) inside that
+  directory; use for a nested Go module / subdirectory. Prefer this over
+  `cd nested && go test ...`.
+- `command: "GOWORK=off GOFLAGS=... go test ./..."` — leading `VAR=val` env
+  assignments scope the **whole gate** (build+test+lint).
+
+For a nested module and/or env vars, use the gogate tool's `directory` arg + a
+leading `VAR=val` prefix on `command` — don't `cd`/pipe/reconstruct the binary;
+the report is already compact.
+
+## Don't pipe, redirect, or `cd`
+
+The report is already canonical and compact, so piping it through `tail`/`head`
+is unnecessary. Behavior differs by entry point:
+
+- **`gogate` tool (`command` arg):** a trailing sink (`| tail`, `| head`,
+  `> file`, `2>&1`) is auto-stripped, and compound commands (`;`, `&&`, command
+  substitution) are rejected — pass a single go/golangci command.
+- **bash rewrite:** recognized go/golangci commands are wrapped **in place**, so
+  pipes/redirects/chains and `cd …` are preserved verbatim; redundant same-dir
+  gates collapse to one and a leading `rtk` is stripped.
+
+Prefer the `directory` arg over `cd nested && go test ...`.
+
+## Disable
+
+- `GOGATE_MODE=off` — disable the bash rewrite entirely.
+- `GOGATE_DISABLED` — same, when set to any non-empty value other than `0` (e.g.
+  `1`, `true`, `yes`). `0`/unset leave it enabled. The explicit `gogate` tool
+  still works either way.
 
 ## Skip gogate for
 

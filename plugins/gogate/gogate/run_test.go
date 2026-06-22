@@ -283,6 +283,47 @@ func Test_runTest(t *testing.T) {
 	assert.Equal(t, "mysterious failure", s.Error)
 }
 
+func Test_noPackagesHint(t *testing.T) {
+	// 0/0 counts + a no-packages marker -> hint mentioning the dir
+	hint := noPackagesHint("plugin", TestCounts{}, "go: [setup failed]\n", "")
+	assert.Contains(t, hint, "no packages matched in plugin")
+	assert.Contains(t, hint, "nested Go module")
+
+	// marker on stderr is also detected
+	hint = noPackagesHint("sub", TestCounts{}, "", "matched no packages")
+	assert.Contains(t, hint, "no packages matched in sub")
+
+	// real pass/fail counts -> no hint even if a marker is present
+	assert.Empty(t, noPackagesHint(".", TestCounts{Passed: 3, Failed: 1}, "[setup failed]", ""))
+	assert.Empty(t, noPackagesHint(".", TestCounts{Failed: 1}, "matched no packages", ""))
+
+	// no marker -> no hint
+	assert.Empty(t, noPackagesHint(".", TestCounts{}, "some other failure", ""))
+}
+
+func Test_runTestNoPackagesHint(t *testing.T) {
+	// `[setup failed]` with zero pass/fail counts -> the step surfaces the nested-module
+	// hint in its Error.
+	r := fakeRunner{fn: func(string, []string) Result {
+		return Result{ExitCode: 1, Stderr: "go: foo/bar: [setup failed]\n"}
+	}}
+	s, _ := runTest(t.Context(), r, "plugin", nil, 0)
+	assert.Equal(t, StatusFail, s.Status)
+	assert.Contains(t, s.Error, "no packages matched in plugin")
+	assert.Contains(t, s.Error, "nested Go module")
+
+	// A normal test failure with real counts must NOT get the hint.
+	stream := strings.Join([]string{
+		`{"Action":"output","Package":"p","Test":"TestB","Output":"x_test.go:9: nope\n"}`,
+		`{"Action":"pass","Package":"p","Test":"TestA"}`,
+		`{"Action":"fail","Package":"p","Test":"TestB"}`,
+	}, "\n")
+	r = fakeRunner{fn: func(string, []string) Result { return Result{ExitCode: 1, Stdout: stream} }}
+	s, _ = runTest(t.Context(), r, ".", nil, 0)
+	assert.Equal(t, StatusFail, s.Status)
+	assert.NotContains(t, s.Error, "no packages matched")
+}
+
 func Test_runLint(t *testing.T) {
 	// not installed
 	r := fakeRunner{fn: func(string, []string) Result { return Result{ExitCode: -1} }}

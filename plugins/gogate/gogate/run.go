@@ -203,8 +203,41 @@ func runTestOnce(ctx context.Context, r Runner, dir string, extra []string) (Ste
 		}
 		step.Error = clip(raw, 4000)
 	}
+	if hint := noPackagesHint(dir, counts, p.AllOutput, res.Stderr); hint != "" {
+		if step.Error == "" {
+			step.Error = hint
+		} else {
+			step.Error += "\n" + hint
+		}
+	}
 
 	return step, cov, p
+}
+
+// noPackagesHint returns a tool-agnostic hint when the test step clearly matched no
+// packages in the current module: zero pass/fail counts plus a no-packages marker in
+// the output. It is empty otherwise (e.g. a normal test failure with real counts).
+func noPackagesHint(dir string, counts TestCounts, output, stderr string) string {
+	if counts.Passed != 0 || counts.Failed != 0 {
+		return ""
+	}
+	// Markers the Go toolchain emits when the test command matched nothing in the
+	// current module (often because the packages live in a nested module under dir).
+	markers := []string{
+		"matched no packages",
+		"no required module provides package",
+		"[setup failed]",
+		"is not in module",
+		"no Go files",
+	}
+	combined := output + "\n" + stderr
+	for _, m := range markers {
+		if strings.Contains(combined, m) {
+			return fmt.Sprintf("hint: no packages matched in %s; if these packages live in a nested Go module, run the gate from that module's directory.", dir)
+		}
+	}
+
+	return ""
 }
 
 // maxRerunFailures caps how many failed tests will be re-run; above this, failures are
