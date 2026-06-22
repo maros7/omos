@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint"
 
 export default tseslint.config(
   {
-    ignores: ["coverage/**", "node_modules/**", "eslint.config.js"],
+    ignores: ["coverage/**", "node_modules/**", "eslint.config.js", "install-skill.mjs"],
   },
   ...tseslint.configs.recommendedTypeChecked,
   {
