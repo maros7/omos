@@ -90,7 +90,8 @@ describe("rewriteGoCommand", () => {
       "'gogate' go test -run '^(TestA|TestB)$' ./...",
     ],
     ['go test -run "A|B" ./...', "'gogate' go test -run \"A|B\" ./..."],
-    ["go test ./... && go build ./...", "'gogate' go test ./... && 'gogate' go build ./..."],
+    // Same-dir build+test collapse to ONE gogate gate (gogate gates the whole package).
+    ["go test ./... && go build ./...", "'gogate' go test ./..."],
     ["cd x && rtk go test -run Y ./... 2>&1 | head", "cd x && 'gogate' go test -run Y ./... 2>&1 | head"],
     ["go test ./... > out.txt", "'gogate' go test ./... > out.txt"],
     ["go test ./... | tee out.txt", "'gogate' go test ./... | tee out.txt"],
@@ -98,17 +99,52 @@ describe("rewriteGoCommand", () => {
     // env-prefixed, with a trailing redirect+pipe — each recognized segment is
     // independently rtk-stripped and gogate-wrapped.
     [
-      "cd /Users/marcus.rosen/git/range360-260401/.slim/worktrees/bigquery-view-schema-gen/plugin && GOWORK=off rtk go build ./... && GOWORK=off rtk golangci-lint run ./protoc-gen-bigquery/ 2>&1 | tail -15",
-      "cd /Users/marcus.rosen/git/range360-260401/.slim/worktrees/bigquery-view-schema-gen/plugin && GOWORK=off 'gogate' go build ./... && GOWORK=off 'gogate' golangci-lint run ./protoc-gen-bigquery/ 2>&1 | tail -15",
+      "cd /abs/path/plugin && GOWORK=off rtk go build ./... && GOWORK=off rtk golangci-lint run ./protoc-gen-bigquery/ 2>&1 | tail -15",
+      "cd /abs/path/plugin && GOWORK=off 'gogate' go build ./... && GOWORK=off 'gogate' golangci-lint run ./protoc-gen-bigquery/ 2>&1 | tail -15",
     ],
   ])("wraps: %s", (cmd, want) => {
     expect(rewriteGoCommand(cmd, BIN)).toBe(want)
   })
 
-  test("wraps each recognized segment of a chain with gogate flags", () => {
+  test("collapses a same-dir chain to one gate, carrying gogate flags", () => {
     expect(rewriteGoCommand("go build ./... && go test ./...", BIN, ["-rerun-fails=2"])).toBe(
-      "'gogate' '-rerun-fails=2' go build ./... && 'gogate' '-rerun-fails=2' go test ./...",
+      "'gogate' '-rerun-fails=2' go build ./...",
     )
+  })
+
+  // DEDUP: multiple recognized segments targeting the SAME directory collapse to ONE
+  // gogate invocation (it gates the whole package regardless of subcommand). Collapse is
+  // conservative — a duplicate is only dropped if its segment has no redirect and does not
+  // feed a pipe; non-recognized segments (echo) are never dropped.
+  test.each([
+    ["go build ./... && golangci-lint run ./...", "'gogate' go build ./..."],
+    [
+      'go build ./... && echo "hello world" && golangci-lint run ./...',
+      "'gogate' go build ./... && echo \"hello world\"",
+    ],
+    ["go build ./... && go test ./... && go vet ./...", "'gogate' go build ./..."],
+    [
+      "go build ./... && echo hi && go test ./... && echo bye && golangci-lint run ./...",
+      "'gogate' go build ./... && echo hi && echo bye",
+    ],
+    [
+      "go build ./x/... && go build ./y/...",
+      "'gogate' go build ./x/... && 'gogate' go build ./y/...",
+    ],
+    [
+      "GOWORK=off go build ./... && GOWORK=on go test ./...",
+      "GOWORK=off 'gogate' go build ./... && GOWORK=on 'gogate' go test ./...",
+    ],
+    [
+      "go build ./... && go test ./... | tail",
+      "'gogate' go build ./... && 'gogate' go test ./... | tail",
+    ],
+    [
+      "go build ./... && go test ./... > out.txt",
+      "'gogate' go build ./... && 'gogate' go test ./... > out.txt",
+    ],
+  ])("dedups: %s", (cmd, want) => {
+    expect(rewriteGoCommand(cmd, BIN)).toBe(want)
   })
 
   test.each([

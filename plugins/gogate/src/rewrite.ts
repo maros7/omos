@@ -5,6 +5,7 @@
 // individually while the surrounding shell structure is reassembled verbatim.
 
 import { splitShell } from "./shell"
+import { tokenize } from "./tokenize"
 
 // Commands gogate wraps. `go vet` is run as real `go vet` (not golangci-lint), so any
 // vet args are fine to forward.
@@ -33,17 +34,76 @@ export function rewriteGoCommand(
   gogateFlags: string[] = [],
 ): string | null {
   if (!cmd.trim()) return null
-
   const split = splitShell(cmd)
-  if (!split) return null // dangerous construct → leave the whole command unchanged
+  if (!split) return null
 
-  const out = split.segments.map((seg) => wrapSegment(seg, binPrefix, gogateFlags) ?? seg)
-  const wrappedAny = out.some((seg, i) => seg !== split.segments[i])
-  if (!wrappedAny) return null
+  const wrapped = split.segments.map((seg) => wrapSegment(seg, binPrefix, gogateFlags))
+  if (wrapped.every((w) => w === null)) return null
 
-  let result = out[0]
-  for (let i = 0; i < split.operators.length; i += 1) result += split.operators[i] + out[i + 1]
-  return result
+  const dropped = computeDropped(split.segments, split.operators, wrapped)
+
+  const removedOps = new Set<number>()
+  for (const k of dropped) removedOps.add(k - 1)
+
+  const keptSegs: string[] = []
+  for (let i = 0; i < split.segments.length; i += 1) {
+    if (dropped.has(i)) continue
+    keptSegs.push(wrapped[i] ?? split.segments[i])
+  }
+  const keptOps: string[] = []
+  for (let j = 0; j < split.operators.length; j += 1) {
+    if (!removedOps.has(j)) keptOps.push(split.operators[j])
+  }
+
+  let result = keptSegs[0]
+  for (let j = 0; j < keptOps.length; j += 1) result += keptOps[j] + keptSegs[j + 1]
+  return dropped.size > 0 ? result.replace(/\s+$/, "") : result
+}
+
+// computeDropped finds recognized segments that redundantly re-gate a directory already
+// gated by an earlier kept segment, and are "clean" enough to safely drop (no redirect in
+// the segment, and not feeding a pipe). gogate runs its whole gate over the target package
+// regardless of subcommand, so build/test/vet/lint on the same dir collapse to one.
+function computeDropped(
+  segments: string[],
+  operators: string[],
+  wrapped: (string | null)[],
+): Set<number> {
+  const dropped = new Set<number>()
+  const seen = new Set<string>()
+  for (let i = 0; i < segments.length; i += 1) {
+    if (wrapped[i] === null) continue
+    const key = segmentTarget(segments[i])
+    if (key === null) continue
+    const opAfter = i < operators.length ? operators[i] : ""
+    const collapsible = !/[<>]/.test(segments[i]) && opAfter !== "|" && opAfter !== "|&"
+    if (seen.has(key)) {
+      if (collapsible) dropped.add(i)
+    } else {
+      seen.add(key)
+    }
+  }
+  return dropped
+}
+
+// segmentTarget builds a dedup key for a recognized segment: its env prefix plus the sorted
+// set of package-path operands (after env-peel + rtk-strip). Returns null for a segment that
+// is not a recognized go/golangci command. Heuristic + conservative: a token is treated as a
+// package path only if it does not start with "-" and looks path-like (starts with "." or "/"
+// or contains "/"); flag values that happen to look like paths only make the key MORE specific
+// (less collapsing), never less — so two genuinely different targets never share a key.
+function segmentTarget(seg: string): string | null {
+  const trimmed = seg.trim()
+  const envPart = trimmed.match(LEADING_ENV)?.[0] ?? ""
+  const rest = trimmed.slice(envPart.length).replace(LEADING_RTK, "")
+  if (!RECOGNIZED.test(rest)) return null
+  const operands = tokenize(rest).slice(2) // drop the 2 subcommand tokens (go build | golangci-lint run)
+  const paths = operands
+    .filter((t) => !t.startsWith("-") && (t.startsWith(".") || t.startsWith("/") || t.includes("/")))
+    .map((t) => (t.length > 1 && t.endsWith("/") ? t.slice(0, -1) : t))
+    .sort()
+  const target = paths.length > 0 ? paths : ["."]
+  return `${envPart.trim()}\u0000${target.join("\u0001")}`
 }
 
 // wrapSegment wraps one pipeline segment when its command (after env-peel + rtk-strip) is a
