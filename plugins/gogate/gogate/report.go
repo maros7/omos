@@ -75,6 +75,7 @@ type Coverage struct {
 	TotalPct  *float64          `json:"totalPct,omitempty"`
 	ByPackage []PackageCoverage `json:"byPackage"`
 	Uncovered []FuncCoverage    `json:"uncovered,omitempty"`
+	Scoped    bool              `json:"scoped,omitempty"` // run narrowed by -run: % is not whole-package, uncovered list omitted
 }
 
 // Step is the result of one stage of the gate.
@@ -211,18 +212,30 @@ func renderStep(b *strings.Builder, s Step) {
 	}
 }
 
+// renderCoverageHeader writes the coverage total line (annotated as scoped when the run
+// was narrowed by -run), or just a scoped header when there's no total to report.
+func renderCoverageHeader(b *strings.Builder, cov *Coverage) {
+	switch {
+	case cov.TotalPct != nil && cov.Scoped:
+		fmt.Fprintf(b, "\ncoverage: %.1f%% (scoped to -run; not whole-package)\n", *cov.TotalPct)
+	case cov.TotalPct != nil:
+		fmt.Fprintf(b, "\ncoverage: %.1f%%\n", *cov.TotalPct)
+	case cov.Scoped && len(cov.ByPackage) > 0:
+		// User-supplied cover flag (no gogate profile, so no total) but still -run-scoped.
+		b.WriteString("\ncoverage (scoped to -run):\n")
+	}
+}
+
 // renderCoverage writes the coverage total, per-package, and under-100% functions.
 func renderCoverage(b *strings.Builder, cov *Coverage) {
 	if cov == nil {
 		return
 	}
-	if cov.TotalPct != nil {
-		fmt.Fprintf(b, "\ncoverage: %.1f%%\n", *cov.TotalPct)
-	}
+	renderCoverageHeader(b, cov)
 	for _, p := range cov.ByPackage {
 		fmt.Fprintf(b, "  %s  %.1f%%\n", p.Package, p.Pct)
 	}
-	if len(cov.Uncovered) > 0 {
+	if len(cov.Uncovered) > 0 { // empty (nil) on a scoped run
 		b.WriteString("  uncovered (add tests here):\n")
 		for _, f := range cov.Uncovered {
 			fmt.Fprintf(b, "    %s  %.1f%%  %s:%d", f.Function, f.Pct, f.File, f.Line)

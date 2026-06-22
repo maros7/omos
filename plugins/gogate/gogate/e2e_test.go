@@ -67,6 +67,24 @@ func TestE2EGatePass(t *testing.T) {
 	require.NotNil(t, rep.Coverage)
 }
 
+func TestE2EScopedCoverage(t *testing.T) {
+	// A -run-scoped test run: the injected coverprofile reflects only the matched test,
+	// so gogate marks coverage as scoped and suppresses the per-function "uncovered"
+	// breakdown, while the truthful total/per-package % stay.
+	dir := writeModule(t, map[string]string{
+		"calc.go": "package e2e\n\nfunc Add(a, b int) int { return a + b }\n\n" +
+			"func Sub(a, b int) int { return a - b }\n",
+		"calc_test.go": "package e2e\n\nimport \"testing\"\n\n" +
+			"func TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Fatal(\"bad\")\n\t}\n}\n",
+	})
+	rep := e2eGate(t, dir, Config{Command: []string{"go", "test", "-run=TestAdd", "./..."}})
+
+	require.NotNil(t, rep.Coverage)
+	assert.True(t, rep.Coverage.Scoped)
+	assert.Empty(t, rep.Coverage.Uncovered)
+	require.NotNil(t, rep.Coverage.TotalPct)
+}
+
 func TestE2EBuildFailShortCircuits(t *testing.T) {
 	dir := writeModule(t, map[string]string{
 		"bad.go": "package e2e\n\nfunc Bad() int { return notDefined }\n",

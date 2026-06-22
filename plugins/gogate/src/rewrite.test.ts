@@ -66,18 +66,118 @@ describe("rewriteGoCommand", () => {
     expect(rewriteGoCommand("go test ./gogate/", BIN)).toBe("'gogate' go test ./gogate/")
   })
 
+  // Recognized commands inside shell pipes/redirects/chains are wrapped per-segment
+  // while the surrounding shell structure is reassembled byte-exact. A leading `rtk`
+  // toolchain-wrapper prefix is stripped (gogate replaces rtk).
   test.each([
-    ["pipe", "go test ./... | tee out.txt"],
-    ["chain", "go build ./... && go test ./..."],
-    ["redirect", "go test ./... > out.txt"],
+    [
+      "cd /abs/path/plugin && GOWORK=off rtk go build ./... && GOWORK=off rtk go test -run TestBigQuery_generateMaterializedView ./protoc-gen-bigquery/ 2>&1 | tail -20",
+      "cd /abs/path/plugin && GOWORK=off 'gogate' go build ./... && GOWORK=off 'gogate' go test -run TestBigQuery_generateMaterializedView ./protoc-gen-bigquery/ 2>&1 | tail -20",
+    ],
+    [
+      'GOWORK=off rtk go build ./... 2>&1 | head -30; echo "EXIT=$?"',
+      "GOWORK=off 'gogate' go build ./... 2>&1 | head -30; echo \"EXIT=$?\"",
+    ],
+    ["rtk go test ./...", "'gogate' go test ./..."],
+    ["rtk golangci-lint run ./...", "'gogate' golangci-lint run ./..."],
+    ["GOWORK=off rtk go build ./...", "GOWORK=off 'gogate' go build ./..."],
+    ["go test ./... | tail -20", "'gogate' go test ./... | tail -20"],
+    ["go test ./... 2>&1", "'gogate' go test ./... 2>&1"],
+    ["cd pkg && go test ./...", "cd pkg && 'gogate' go test ./..."],
+    ["go build ./... ; echo done", "'gogate' go build ./... ; echo done"],
+    [
+      "go test -run '^(TestA|TestB)$' ./...",
+      "'gogate' go test -run '^(TestA|TestB)$' ./...",
+    ],
+    ['go test -run "A|B" ./...', "'gogate' go test -run \"A|B\" ./..."],
+    // Same-dir build+test collapse to ONE gogate gate (gogate gates the whole package).
+    ["go test ./... && go build ./...", "'gogate' go test ./..."],
+    ["cd x && rtk go test -run Y ./... 2>&1 | head", "cd x && 'gogate' go test -run Y ./... 2>&1 | head"],
+    ["go test ./... > out.txt", "'gogate' go test ./... > out.txt"],
+    ["go test ./... | tee out.txt", "'gogate' go test ./... | tee out.txt"],
+    // Mixed chain: a `go build` AND a `golangci-lint run` segment, both rtk- and
+    // env-prefixed, with a trailing redirect+pipe — each recognized segment is
+    // independently rtk-stripped and gogate-wrapped.
+    [
+      "cd /abs/path/plugin && GOWORK=off rtk go build ./... && GOWORK=off rtk golangci-lint run ./protoc-gen-bigquery/ 2>&1 | tail -15",
+      "cd /abs/path/plugin && GOWORK=off 'gogate' go build ./... && GOWORK=off 'gogate' golangci-lint run ./protoc-gen-bigquery/ 2>&1 | tail -15",
+    ],
+  ])("wraps: %s", (cmd, want) => {
+    expect(rewriteGoCommand(cmd, BIN)).toBe(want)
+  })
+
+  test("collapses a same-dir chain to one gate, carrying gogate flags", () => {
+    expect(rewriteGoCommand("go build ./... && go test ./...", BIN, ["-rerun-fails=2"])).toBe(
+      "'gogate' '-rerun-fails=2' go build ./...",
+    )
+  })
+
+  // DEDUP: multiple recognized segments targeting the SAME directory ALWAYS collapse to ONE
+  // gogate invocation (it gates the whole package regardless of subcommand). The operator
+  // before a dropped duplicate is removed, so a trailing pipe (`| tail`) reconnects to the
+  // surviving gate, and a dropped duplicate's own inline redirect (e.g. `2>&1`) is discarded
+  // with it. Collapse does NOT cross a `cd`/`pushd`/`popd` segment (it changes cwd, so `./...`
+  // refers to a new dir); a non-cwd-changing segment like `echo` does not block collapse.
+  test.each([
+    ["go build ./... && golangci-lint run ./...", "'gogate' go build ./..."],
+    [
+      'go build ./... && echo "hello world" && golangci-lint run ./...',
+      "'gogate' go build ./... && echo \"hello world\"",
+    ],
+    ["go build ./... && go test ./... && go vet ./...", "'gogate' go build ./..."],
+    [
+      "go build ./... && echo hi && go test ./... && echo bye && golangci-lint run ./...",
+      "'gogate' go build ./... && echo hi && echo bye",
+    ],
+    [
+      "go build ./x/... && go build ./y/...",
+      "'gogate' go build ./x/... && 'gogate' go build ./y/...",
+    ],
+    [
+      "GOWORK=off go build ./... && GOWORK=on go test ./...",
+      "GOWORK=off 'gogate' go build ./... && GOWORK=on 'gogate' go test ./...",
+    ],
+    // Trailing pipe survives: the operator before the dropped dup is removed, so `| tail`
+    // reconnects to the surviving gate.
+    ["go build ./... && go test ./... | tail", "'gogate' go build ./... | tail"],
+    ["go build ./... && go test ./... 2>&1 | tail -20", "'gogate' go build ./... | tail -20"],
+    // cd/pushd/popd between same-operand gates blocks collapse (different cwd).
+    [
+      "cd x && go build ./... && cd y && go build ./...",
+      "cd x && 'gogate' go build ./... && cd y && 'gogate' go build ./...",
+    ],
+    [
+      "go build ./... && cd y && go test ./...",
+      "'gogate' go build ./... && cd y && 'gogate' go test ./...",
+    ],
+  ])("dedups: %s", (cmd, want) => {
+    expect(rewriteGoCommand(cmd, BIN)).toBe(want)
+  })
+
+  test("a dropped duplicate's own redirect is discarded with it", () => {
+    expect(rewriteGoCommand("go build ./... && go test ./... > out.txt", BIN)).toBe(
+      "'gogate' go build ./...",
+    )
+  })
+
+  test.each([
     ["subshell", "go test $(ls)"],
+    ["command substitution in quoted flag", 'go test -run "$(echo X)" ./...'],
+    ["backtick substitution", "go test -run `date` ./..."],
+    ["paren subshell", "(go test ./...)"],
+    ["process substitution", "go test ./... > >(tee log)"],
+    ["background", "go test ./... &"],
+    ["background then command", "go test ./... & echo done"],
+    ["newline", "go build\ngo test"],
+    ["unterminated quote", 'go test -run "A ./...'],
+    ["chain with no recognized segment", "cd x && ls && echo y"],
+    ["rtk non-go command", "rtk deploy prod"],
+    ["double semicolon", "foo ;; bar"],
+    ["env value with quoted space", 'FOO="a b" go build ./...'],
     ["env prefix to a non-go command", "FOO=bar ls -la"],
     ["bare env assignment", "FOO=bar"],
     // Env peel must not defeat the already-gogate double-wrap guard.
     ["env prefix to already gogate", "GOWORK=off gogate go test ./..."],
-    // Quoted-space value is deliberately not supported: the peel stops at the
-    // space, leaving a leftover quote so RECOGNIZED fails -> passthrough.
-    ["env value with quoted space", 'FOO="a b" go build ./...'],
     ["already gogate", "gogate go test ./..."],
     ["already gogate path", "/usr/local/bin/gogate go test ./..."],
     ["already gogate.exe", "gogate.exe go test ./..."],

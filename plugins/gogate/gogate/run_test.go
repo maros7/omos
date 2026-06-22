@@ -29,6 +29,58 @@ func Test_hasCoverFlag(t *testing.T) {
 	assert.False(t, hasCoverFlag([]string{"-race", "./pkg"}))
 }
 
+func Test_hasRunFlag(t *testing.T) {
+	assert.True(t, hasRunFlag([]string{"-run", "TestFoo"}))
+	assert.True(t, hasRunFlag([]string{"--run", "TestFoo"})) // double-dash form
+	assert.True(t, hasRunFlag([]string{"-run=TestFoo"}))
+	assert.True(t, hasRunFlag([]string{"--run=TestFoo"}))
+	assert.False(t, hasRunFlag([]string{"-race", "./pkg"}))
+	assert.False(t, hasRunFlag([]string{"-runner"})) // boundary: must NOT match
+}
+
+// Test_runTestScopedCoverage pins the -run-scoped coverage behavior: on a scoped run the
+// per-function "uncovered" breakdown is suppressed (it would flag every untargeted
+// function) and Coverage.Scoped is set, while the truthful total/per-package % stay.
+func Test_runTestScopedCoverage(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"Action":"pass","Package":"p","Test":"TestFoo"}`,
+		`{"Action":"output","Package":"p","Output":"coverage: 50.0% of statements\n"}`,
+	}, "\n")
+	funcOut := strings.Join([]string{
+		"p/a.go:3:\tBar\t0.0%",
+		"total:\t(statements)\t50.0%",
+	}, "\n")
+	r := fakeRunner{fn: func(_ string, args []string) Result {
+		if len(args) > 1 && args[0] == "tool" {
+			return Result{Stdout: funcOut + "\n"}
+		}
+		return Result{ExitCode: 0, Stdout: stream}
+	}}
+
+	for _, tc := range []struct {
+		name       string
+		extra      []string
+		wantScoped bool
+	}{
+		{"unscoped", []string{"./pkg"}, false},
+		{"scoped space form", []string{"-run", "TestFoo", "./pkg"}, true},
+		{"scoped equals form", []string{"-run=TestFoo", "./pkg"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, cov := runTest(t.Context(), r, ".", tc.extra, 0)
+			require.NotNil(t, cov)
+			require.NotNil(t, cov.TotalPct) // total stays either way
+			assert.InDelta(t, 50.0, *cov.TotalPct, 0.001)
+			assert.Equal(t, tc.wantScoped, cov.Scoped)
+			if tc.wantScoped {
+				assert.Empty(t, cov.Uncovered)
+			} else {
+				assert.NotEmpty(t, cov.Uncovered)
+			}
+		})
+	}
+}
+
 func Test_withPkgs(t *testing.T) {
 	assert.Equal(t, []string{"./..."}, withPkgs(nil))
 	assert.Equal(t, []string{"-race", "./pkg"}, withPkgs([]string{"-race", "./pkg"}))
@@ -481,6 +533,9 @@ func TestRunGateScopesTestStep(t *testing.T) {
 	assert.Equal(t, []string{"build", "./..."}, buildGot)                  // build is whole-module
 	assert.Equal(t, []string{"test", "-json", "-cover"}, testGot[:3])      // managed flags
 	assert.Equal(t, []string{"-run=X", "./pkg"}, testGot[len(testGot)-2:]) // scoped to the command
+	require.NotNil(t, rep.Coverage)
+	assert.True(t, rep.Coverage.Scoped)     // -run scopes the coverage report
+	assert.Empty(t, rep.Coverage.Uncovered) // per-function breakdown suppressed
 }
 
 func TestRunUnrecognizedCommand(t *testing.T) {
