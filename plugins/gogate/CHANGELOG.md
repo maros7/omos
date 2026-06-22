@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/maros7/omos/compare/opencode-gogate-v0.1.0...opencode-gogate-v0.1.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* **gogate:** scope coverage to -run and capture go cmds in shell chains ([#38](https://github.com/maros7/omos/issues/38)) ([849a69b](https://github.com/maros7/omos/commit/849a69b7a6987b14f80d5b3fca9c991f32c74296))
+
 ## 0.1.0 (2026-06-22)
 
 
