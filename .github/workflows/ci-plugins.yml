@@ -219,6 +219,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Full history (not a shallow clone): this job uploads coverage, and
+          # Codecov walks the commit graph to resolve the parent/base SHA. With
+          # the default shallow fetch the CLI reports an empty CC_PARENT_SHA and
+          # falls back to a stale base ("Report is N commits behind head on main").
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Bun
