@@ -107,19 +107,25 @@ function sanitizeVersion(version: string): string {
   return version.replace(/[^A-Za-z0-9._-]/g, "-")
 }
 
-// cachedBinPath is the on-disk path of the cached binary.
-//   - default (latest): <cache>/bin/gogate(.exe) — a stable, version-agnostic path so
-//     the common case keeps its no-network cache hit across runs.
-//   - pinned (GOGATE_VERSION set): <cache>/bin/<sanitizedVersion>/gogate(.exe) — keyed by
-//     the tag in its own subdir, so changing/setting the pin yields a DISTINCT path that
-//     forces a download of the requested tag (and never clobbers the "latest" binary,
-//     since the archive always extracts a file literally named gogate(.exe)).
+// resolvedTag computes the release tag this run targets — the SAME precedence
+// fetchRelease uses — so the cache key and the fetched release can never diverge:
+//   - GOGATE_VERSION set: that raw tag (power-user passthrough).
+//   - default:            this plugin's own version, as opencode-gogate-v<version>.
+function resolvedTag(deps: ResolveDeps): string {
+  return deps.env.GOGATE_VERSION ?? `opencode-gogate-v${readOwnVersion()}`
+}
+
+// cachedBinPath is the on-disk path of the cached binary, always keyed by the
+// resolved tag in its own subdir: <cache>/bin/<sanitizedTag>/gogate(.exe). Keying
+// BOTH the default and pinned cases by tag means a version bump (or a changed pin)
+// yields a DISTINCT path → a forced cold install of the matching release, while the
+// same tag keeps its no-network cache hit across runs. Old-version binaries simply
+// accumulate under their own subdirs (the archive always extracts a file literally
+// named gogate(.exe), so distinct subdirs never clobber each other).
 function cachedBinPath(deps: ResolveDeps): string {
   const exe = binaryName(deps.platform)
   const binDir = join(cacheDir(deps), "bin")
-  const pinned = deps.env.GOGATE_VERSION
-  if (pinned) return join(binDir, sanitizeVersion(pinned), exe)
-  return join(binDir, exe)
+  return join(binDir, sanitizeVersion(resolvedTag(deps)), exe)
 }
 
 // markerPath is the success marker written next to a cached binary. Its presence (in
@@ -133,7 +139,9 @@ function markerPath(cachedBin: string): string {
 // the GitHub Release on first use if necessary. Resolution order (first hit wins):
 //   1. $GOGATE_BIN              explicit override
 //   2. <dir>/bin/gogate         local dev build
-//   3. version-aware cache hit  binary AND its `.ok` marker both present (no network)
+//   3. tag-keyed cache hit      binary AND its `.ok` marker both present (no network);
+//                               the cache path is keyed by the resolved tag, so an
+//                               upgraded plugin version misses and re-installs
 //   4. download + verify + extract + chmod + write marker, then install the result
 export async function resolveBinary(
   dir: string,
@@ -230,11 +238,8 @@ interface Release {
 // this is a monorepo cutting other plugins' releases too, so the repo-wide latest
 // can be a non-gogate release with no gogate asset.
 async function fetchRelease(deps: ResolveDeps): Promise<Release> {
-  const pinned = deps.env.GOGATE_VERSION
-  const defaultTag = `opencode-gogate-v${readOwnVersion()}`
-  const url = pinned
-    ? `https://api.github.com/repos/${REPO}/releases/tags/${pinned}`
-    : `https://api.github.com/repos/${REPO}/releases/tags/${defaultTag}`
+  const tag = resolvedTag(deps)
+  const url = `https://api.github.com/repos/${REPO}/releases/tags/${tag}`
 
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -253,7 +258,7 @@ async function fetchRelease(deps: ResolveDeps): Promise<Release> {
   // guards (no `as`) so we never smuggle an unvalidated shape past the parser.
   const json: unknown = await res.json()
   const envelope = parseReleaseEnvelope(json)
-  return { tag: envelope.tag_name ?? pinned ?? defaultTag, assets: envelope.assets ?? [] }
+  return { tag: envelope.tag_name ?? tag, assets: envelope.assets ?? [] }
 }
 
 /** GitHub release envelope shape we read in fetchRelease. */

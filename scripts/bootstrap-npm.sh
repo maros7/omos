@@ -128,11 +128,18 @@ fi
 # (release-please.yml) once the release-please PR is merged. gogate ships raw
 # src/*.ts — no build step — so a plain `npm publish` from its dir is all that's
 # needed.
-echo "==> Publishing opencode-gogate (to create the package) ..."
+#
+# Publish under the `bootstrap` dist-tag, NOT the default `latest`: this 0.0.0
+# stub has no matching GitHub Release, so its runtime binary download would 404.
+# Leaving `latest` unset until the first real CI release (0.1.0) means a stray
+# `npm i opencode-gogate` fails fast instead of installing a broken 0.0.0. The
+# package is still created (so the Trusted Publisher can attach) regardless of
+# the dist-tag.
+echo "==> Publishing opencode-gogate@bootstrap (to create the package) ..."
 # Idempotent: if this exact version is already published, npm errors with
 # E409 / EPUBLISHCONFLICT ("cannot publish over previously published version").
 # Tolerate ONLY that case (skip + continue); any other npm failure stays fatal.
-gogate_out=$(cd plugins/gogate && npm publish --access public 2>&1) && gogate_rc=0 || gogate_rc=$?
+gogate_out=$(cd plugins/gogate && npm publish --access public --tag bootstrap 2>&1) && gogate_rc=0 || gogate_rc=$?
 printf '%s\n' "$gogate_out"
 if [[ $gogate_rc -ne 0 ]]; then
   if grep -qiE 'E409|EPUBLISHCONFLICT|cannot publish over|previously published version' <<<"$gogate_out"; then
