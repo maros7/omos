@@ -52,6 +52,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Full history (not a shallow clone): Codecov walks the commit graph to
+          # resolve the parent/base SHA. With the default shallow fetch the CLI
+          # reports an empty CC_PARENT_SHA and falls back to a stale base, which
+          # surfaces as "Report is N commits behind head on main".
+          fetch-depth: 0
           # Don't leave the auth token in .git/config where dependency code could read it.
           persist-credentials: false
 
