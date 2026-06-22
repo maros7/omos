@@ -40,7 +40,7 @@ export function rewriteGoCommand(
   const wrapped = split.segments.map((seg) => wrapSegment(seg, binPrefix, gogateFlags))
   if (wrapped.every((w) => w === null)) return null
 
-  const dropped = computeDropped(split.segments, split.operators, wrapped)
+  const dropped = computeDropped(split.segments, wrapped)
 
   const removedOps = new Set<number>()
   for (const k of dropped) removedOps.add(k - 1)
@@ -61,27 +61,20 @@ export function rewriteGoCommand(
 }
 
 // computeDropped finds recognized segments that redundantly re-gate a directory already
-// gated by an earlier kept segment, and are "clean" enough to safely drop (no redirect in
-// the segment, and not feeding a pipe). gogate runs its whole gate over the target package
-// regardless of subcommand, so build/test/vet/lint on the same dir collapse to one.
-function computeDropped(
-  segments: string[],
-  operators: string[],
-  wrapped: (string | null)[],
-): Set<number> {
+// gated by an earlier kept segment. gogate runs its whole gate over the target package
+// regardless of subcommand, so build/test/vet/lint on the same dir collapse to one. The
+// operator BEFORE a dropped segment is removed by reassembly, so a trailing pipe (e.g.
+// `| tail`) reconnects to the surviving gate; a dropped duplicate's own inline redirect
+// (e.g. `2>&1`) is discarded with it (harmless — gogate merges stderr).
+function computeDropped(segments: string[], wrapped: (string | null)[]): Set<number> {
   const dropped = new Set<number>()
   const seen = new Set<string>()
   for (let i = 0; i < segments.length; i += 1) {
     if (wrapped[i] === null) continue
     const key = segmentTarget(segments[i])
     if (key === null) continue
-    const opAfter = i < operators.length ? operators[i] : ""
-    const collapsible = !/[<>]/.test(segments[i]) && opAfter !== "|" && opAfter !== "|&"
-    if (seen.has(key)) {
-      if (collapsible) dropped.add(i)
-    } else {
-      seen.add(key)
-    }
+    if (seen.has(key)) dropped.add(i)
+    else seen.add(key)
   }
   return dropped
 }

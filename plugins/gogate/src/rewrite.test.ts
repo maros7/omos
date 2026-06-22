@@ -135,16 +135,18 @@ describe("rewriteGoCommand", () => {
       "GOWORK=off go build ./... && GOWORK=on go test ./...",
       "GOWORK=off 'gogate' go build ./... && GOWORK=on 'gogate' go test ./...",
     ],
-    [
-      "go build ./... && go test ./... | tail",
-      "'gogate' go build ./... && 'gogate' go test ./... | tail",
-    ],
-    [
-      "go build ./... && go test ./... > out.txt",
-      "'gogate' go build ./... && 'gogate' go test ./... > out.txt",
-    ],
+    // Trailing pipe survives: the operator before the dropped dup is removed, so `| tail`
+    // reconnects to the surviving gate.
+    ["go build ./... && go test ./... | tail", "'gogate' go build ./... | tail"],
+    ["go build ./... && go test ./... 2>&1 | tail -20", "'gogate' go build ./... | tail -20"],
   ])("dedups: %s", (cmd, want) => {
     expect(rewriteGoCommand(cmd, BIN)).toBe(want)
+  })
+
+  test("a dropped duplicate's own redirect is discarded with it", () => {
+    expect(rewriteGoCommand("go build ./... && go test ./... > out.txt", BIN)).toBe(
+      "'gogate' go build ./...",
+    )
   })
 
   test.each([
