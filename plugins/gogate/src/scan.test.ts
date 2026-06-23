@@ -49,6 +49,16 @@ describe("scanCommand — strips trailing output sinks", () => {
   test("escaped pipe is not a sink", () => {
     expect(head("go test ./... \\| x")).toBe("go test ./... \\| x")
   })
+
+  test("backslash escape inside double quotes is consumed (not a sink/substitution)", () => {
+    // The `\"` keeps the quote literal so the double-quoted run value spans `A"|B`;
+    // the inner `|` must stay literal (exercises the in-quote backslash branch).
+    expect(head('go test -run "A\\"|B" ./...')).toBe('go test -run "A\\"|B" ./...')
+  })
+
+  test("backslash before backtick inside double quotes is literal (no bail)", () => {
+    expect(head('go test -run "a\\`b" ./...')).toBe('go test -run "a\\`b" ./...')
+  })
 })
 
 describe("scanCommand — bails on unsafe constructs", () => {
