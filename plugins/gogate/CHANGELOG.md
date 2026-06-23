@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/maros7/omos/compare/opencode-gogate-v0.1.1...opencode-gogate-v0.1.2) (2026-06-23)
+
+
+### Features
+
+* **gogate:** support nested modules, env prefixes, and sink-safe tool commands ([#40](https://github.com/maros7/omos/issues/40)) ([1349ba4](https://github.com/maros7/omos/commit/1349ba4e7195f0f28e5d71095f24124361a41cdb))
+
 ## [0.1.1](https://github.com/maros7/omos/compare/opencode-gogate-v0.1.0...opencode-gogate-v0.1.1) (2026-06-22)
 
 
