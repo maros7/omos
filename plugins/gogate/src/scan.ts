@@ -1,5 +1,7 @@
-// scan.ts — quote-aware scanner over a RAW shell command string, shared by both gogate
-// paths (the bash-rewrite hook in index.ts and the custom-tool `command` arg).
+// scan.ts — quote-aware scanner over a RAW shell command string, used ONLY by the gogate
+// custom-tool path (the `command` arg in index.ts execute), which expects a single
+// go/golangci-lint command with no shell. (The bash-rewrite hook does NOT use this — it
+// splits/wraps commands in place via splitShell in shell.ts.)
 //
 // Why raw + quote-aware: tokenize() strips quotes, so a `-run 'A|B'` selector becomes
 // the token `A|B` — indistinguishable from a real pipe. Sink detection therefore MUST

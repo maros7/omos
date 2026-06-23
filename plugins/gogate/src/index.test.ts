@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -43,8 +43,22 @@ describe("gogateTool directory arg", () => {
 
   test("rejects a directory that escapes the project root", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "gogate-root-"))
-    const out = asString(await gogateTool.execute({ directory: "../foo" }, ctx(root)))
-    expect(out).toBe("gogate: directory escapes project root: ../foo")
+    const out = asString(await gogateTool.execute({ directory: "../outside" }, ctx(root)))
+    expect(out).toBe("gogate: directory escapes project root: ../outside")
+  })
+
+  test("accepts a subdir whose name merely starts with .. (e.g. ..cache)", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "gogate-root-"))
+    const sub = path.join(root, "..cache")
+    mkdirSync(sub)
+
+    process.env.GOGATE_BIN = "/bin/echo"
+    try {
+      const out = asString(await gogateTool.execute({ directory: "..cache" }, ctx(root)))
+      expect(out).toContain(`-dir ${sub}`)
+    } finally {
+      delete process.env.GOGATE_BIN
+    }
   })
 
   test("rejects a non-existent directory", async () => {
@@ -109,7 +123,9 @@ describe("gogateTool command sink stripping / bail", () => {
     const out = asString(await gogateTool.execute({ command: "cd x && go test" }, ctx(root)))
     expect(out).toBe(
       "gogate: command must be a single go/golangci-lint command without shell " +
-        "operators (;, &&, ||, pipes-with-substitution, redirects)",
+        "operators (;, &&, ||, background &, command substitution $(...) or backticks, " +
+        "subshells (...), input redirect <, or newlines). A trailing pipe or output " +
+        "redirect (| tail, > file, 2>&1) is allowed and stripped.",
     )
   })
 })

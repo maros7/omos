@@ -65,7 +65,9 @@ export const gogateTool = tool({
       if ("bail" in scanned) {
         return (
           "gogate: command must be a single go/golangci-lint command without shell " +
-          "operators (;, &&, ||, pipes-with-substitution, redirects)"
+          "operators (;, &&, ||, background &, command substitution $(...) or backticks, " +
+          "subshells (...), input redirect <, or newlines). A trailing pipe or output " +
+          "redirect (| tail, > file, 2>&1) is allowed and stripped."
         )
       }
       commandHead = scanned.head
@@ -77,10 +79,12 @@ export const gogateTool = tool({
     const requested = args.directory?.trim() ?? ""
     const runDir = path.resolve(dir, requested.length > 0 ? requested : ".")
 
-    // The run dir must stay within the project root; a `..`-escaping or absolute
-    // relative path is rejected before the binary is ever invoked.
+    // The run dir must stay within the project root; a true parent-escape (`..` or
+    // `../…`) or an absolute relative path is rejected before the binary is ever invoked.
+    // Note: only `..` as a path segment escapes — a subdir whose NAME merely starts with
+    // `..` (e.g. `..cache`) is a valid child and must not be rejected.
     const rel = path.relative(dir, runDir)
-    if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) {
       return `gogate: directory escapes project root: ${args.directory}`
     }
 
