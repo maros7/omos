@@ -283,6 +283,69 @@ func Test_runTest(t *testing.T) {
 	assert.Equal(t, "mysterious failure", s.Error)
 }
 
+func Test_noPackagesHint(t *testing.T) {
+	// 0/0 counts + a no-packages marker -> hint mentioning the dir
+	hint := noPackagesHint("plugin", TestCounts{}, "go: [setup failed]\n", "")
+	assert.Contains(t, hint, "no packages matched in plugin")
+	assert.Contains(t, hint, "nested Go module")
+
+	// marker on stderr is also detected
+	hint = noPackagesHint("sub", TestCounts{}, "", "matched no packages")
+	assert.Contains(t, hint, "no packages matched in sub")
+
+	// real pass/fail counts -> no hint even if a marker is present
+	assert.Empty(t, noPackagesHint(".", TestCounts{Passed: 3, Failed: 1}, "[setup failed]", ""))
+	assert.Empty(t, noPackagesHint(".", TestCounts{Failed: 1}, "matched no packages", ""))
+
+	// no marker -> no hint
+	assert.Empty(t, noPackagesHint(".", TestCounts{}, "some other failure", ""))
+
+	// every marker class triggers the hint (0/0 counts), via output or stderr
+	for _, marker := range []string{
+		"matched no packages",
+		"no required module provides package",
+		"[setup failed]",
+		"is not in module",
+		"no Go files",
+	} {
+		assert.Contains(t, noPackagesHint("d", TestCounts{}, marker, ""), "no packages matched in d", marker)
+		assert.Contains(t, noPackagesHint("d", TestCounts{}, "", marker), "no packages matched in d", marker)
+	}
+}
+
+func Test_runTestNoPackagesHint(t *testing.T) {
+	// `[setup failed]` with zero pass/fail counts -> the step surfaces the nested-module
+	// hint in its Error.
+	r := fakeRunner{fn: func(string, []string) Result {
+		return Result{ExitCode: 1, Stderr: "go: foo/bar: [setup failed]\n"}
+	}}
+	s, _ := runTest(t.Context(), r, "plugin", nil, 0)
+	assert.Equal(t, StatusFail, s.Status)
+	assert.Contains(t, s.Error, "no packages matched in plugin")
+	assert.Contains(t, s.Error, "nested Go module")
+
+	// A normal test failure with real counts must NOT get the hint.
+	stream := strings.Join([]string{
+		`{"Action":"output","Package":"p","Test":"TestB","Output":"x_test.go:9: nope\n"}`,
+		`{"Action":"pass","Package":"p","Test":"TestA"}`,
+		`{"Action":"fail","Package":"p","Test":"TestB"}`,
+	}, "\n")
+	r = fakeRunner{fn: func(string, []string) Result { return Result{ExitCode: 1, Stdout: stream} }}
+	s, _ = runTest(t.Context(), r, ".", nil, 0)
+	assert.Equal(t, StatusFail, s.Status)
+	assert.NotContains(t, s.Error, "no packages matched")
+
+	// A parseable diagnostic whose text is also a no-packages marker, with 0/0 counts:
+	// step.Error starts empty (diagnostics were parsed), so the hint is ASSIGNED (not
+	// appended) — exercises the empty-Error branch at the call site.
+	diag := `{"Action":"output","Package":"p","Output":"x.go:1:2: no Go files in /foo\n"}`
+	r = fakeRunner{fn: func(string, []string) Result { return Result{ExitCode: 1, Stdout: diag} }}
+	s, _ = runTest(t.Context(), r, "nested", nil, 0)
+	assert.Equal(t, StatusFail, s.Status)
+	require.Len(t, s.Diagnostics, 1) // the marker line parsed as a diagnostic
+	assert.Equal(t, "hint: no packages matched in nested; if these packages live in a nested Go module, run the gate from that module's directory.", s.Error)
+}
+
 func Test_runLint(t *testing.T) {
 	// not installed
 	r := fakeRunner{fn: func(string, []string) Result { return Result{ExitCode: -1} }}

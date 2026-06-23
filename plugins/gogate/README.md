@@ -149,18 +149,41 @@ The `.opencode/` directory is loaded automatically when OpenCode runs in this pr
 
 - **Tool** `gogate` — callable by the model. Always runs the gate; pass an optional
   `command` (a `go test …`) to scope the test step, and optionally `rerunFails` to re-run
-  flaky tests. Resolves the binary via the order described under
-  [Distribution](#distribution) (auto-downloading it on first use if needed).
-- **Plugin** `go-gate` — intercepts `bash` calls and rewrites a recognized Go command by
+  flaky tests.   Pass `directory` to run the **whole gate** (build+test+lint) inside that
+  directory — use it for a **nested Go module / subdirectory** (e.g. `plugin/`), and
+  prefer it over `cd nested && go test …`. You may also prefix `command` with one or
+  more `VAR=val` env assignments (e.g. `GOWORK=off`, `GOFLAGS=…`, `GOPRIVATE=…`); they
+  scope the **whole gate** (build+test+lint). For a nested module and/or env vars, reach
+  for the `directory` arg + a leading `VAR=val` prefix on `command` — don't
+  `cd`/pipe/reconstruct the binary; the report is already compact. The tool accepts a
+  **single** go/golangci command: a trailing output sink (`| tail`, `> file`, `2>&1`) is
+  auto-stripped, and compound commands (`;`, `&&`, command substitution) are rejected.
+  Resolves the binary via the order described under [Distribution](#distribution)
+  (auto-downloading it on first use if needed).
+- **Plugin** `go-gate` — intercepts `bash` calls and rewrites recognized Go commands by
   **prepending `gogate`** (e.g. `go test -run X ./...` → `gogate go test -run X ./...`),
   so the model's habitual `go build`/`go test`/`golangci-lint` each trigger the full gate
   in one call; everything else (`go mod`, `go run`, `go get`, …) passes through untouched.
-  Set `GOGATE_MODE=off` to disable, or `GOGATE_RERUN_FAILS=N` to re-run flaky tests.
 
-The rewriter leaves a command alone when it isn't a single, recognized invocation: shell
-pipes / chaining / redirects / command substitution / env prefixes, and unrecognized
-commands. Logic lives in `.opencode/lib/rewrite.ts` and is unit-tested (`bun test` in
-`.opencode/`).
+The bash rewrite wraps recognized commands **in place** and **preserves the surrounding
+shell structure verbatim** — pipes, redirects, chains (`&&`/`||`/`;`), and `cd …` are kept
+as written. The command is split on top-level shell control operators (quote-aware, via
+`src/shell.ts`'s `splitShell`) and each recognized go/golangci segment is wrapped
+individually; the rest is reassembled byte-for-byte. Two conveniences: redundant gates over
+the **same directory** collapse to one (gogate runs the whole gate regardless of subcommand,
+so `go build ./... && go test ./...` gates that dir once), and a leading `rtk` (a fellow
+output-minimizing wrapper) is stripped from a recognized segment. The report is already
+canonical and compact, so piping it through `tail`/`head` is unnecessary. Logic lives in
+`src/shell.ts` + `src/rewrite.ts` and is unit-tested (`bun test`).
+
+### Env flags
+
+- `GOGATE_MODE=off` — disable the bash rewrite entirely (the explicit `gogate` tool still
+  works).
+- `GOGATE_DISABLED` — also disables the bash rewrite when set to any non-empty value other
+  than `0` (e.g. `1`, `true`, `yes`); `0` and unset/empty leave it enabled.
+- `GOGATE_RERUN_FAILS=N` — re-run failed tests up to N attempts (flaky-test guard) for the
+  rewrite path.
 
 Install plugin dependencies (OpenCode runs `bun install` at startup):
 
