@@ -35,9 +35,9 @@
     "@opencode-ai/plugin": ">=1.14.0"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "1.17.8",
-    "@types/node": "26.0.0",
-    "eslint": "10.5.0",
+    "@opencode-ai/plugin": "1.17.13",
+    "@types/node": "26.1.0",
+    "eslint": "10.6.0",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.61.1"
   }
