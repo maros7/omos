@@ -46,7 +46,7 @@ jobs:
       # dependency cannot phone home / exfiltrate during checkout. The discover
       # job only needs git over GitHub.
       - name: Harden the runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
           disable-sudo: true
@@ -99,7 +99,7 @@ jobs:
       # Must be the first step: installs an egress firewall on the runner so a
       # compromised dependency cannot phone home / exfiltrate during install.
       - name: Harden the runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
           disable-sudo: true
@@ -148,7 +148,7 @@ jobs:
       # Must be the first step: installs an egress firewall on the runner so a
       # compromised dependency cannot phone home / exfiltrate during install.
       - name: Harden the runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
           disable-sudo: true
@@ -198,7 +198,7 @@ jobs:
       # home / exfiltrate during install. The TS layer needs npm + GitHub +
       # codecov for coverage upload.
       - name: Harden the runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
           disable-sudo: true
