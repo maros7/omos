@@ -46,7 +46,7 @@ jobs:
       # dependency cannot phone home / exfiltrate during checkout. The discover
       # job only needs git over GitHub.
       - name: Harden the runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
           disable-sudo: true
@@ -59,7 +59,7 @@ jobs:
             release-assets.githubusercontent.com:443
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Don't leave the auth token in .git/config where dependency code could read it.
           persist-credentials: false
@@ -99,7 +99,7 @@ jobs:
       # Must be the first step: installs an egress firewall on the runner so a
       # compromised dependency cannot phone home / exfiltrate during install.
       - name: Harden the runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
           disable-sudo: true
@@ -113,7 +113,7 @@ jobs:
             registry.npmjs.org:443
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Don't leave the auth token in .git/config where dependency code could read it.
           persist-credentials: false
@@ -148,7 +148,7 @@ jobs:
       # Must be the first step: installs an egress firewall on the runner so a
       # compromised dependency cannot phone home / exfiltrate during install.
       - name: Harden the runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
           disable-sudo: true
@@ -162,7 +162,7 @@ jobs:
             registry.npmjs.org:443
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Don't leave the auth token in .git/config where dependency code could read it.
           persist-credentials: false
@@ -198,7 +198,7 @@ jobs:
       # home / exfiltrate during install. The TS layer needs npm + GitHub +
       # codecov for coverage upload.
       - name: Harden the runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
           disable-sudo: true
@@ -217,7 +217,7 @@ jobs:
             storage.googleapis.com:443
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history (not a shallow clone): this job uploads coverage, and
           # Codecov walks the commit graph to resolve the parent/base SHA. With
