@@ -46,7 +46,7 @@ jobs:
       # dependency cannot phone home / exfiltrate during checkout. The discover
       # job only needs git over GitHub.
       - name: Harden the runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: block
           disable-sudo: true
@@ -99,7 +99,7 @@ jobs:
       # Must be the first step: installs an egress firewall on the runner so a
       # compromised dependency cannot phone home / exfiltrate during install.
       - name: Harden the runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: block
           disable-sudo: true
@@ -148,7 +148,7 @@ jobs:
       # Must be the first step: installs an egress firewall on the runner so a
       # compromised dependency cannot phone home / exfiltrate during install.
       - name: Harden the runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: block
           disable-sudo: true
@@ -198,7 +198,7 @@ jobs:
       # home / exfiltrate during install. The TS layer needs npm + GitHub +
       # codecov for coverage upload.
       - name: Harden the runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: block
           disable-sudo: true
@@ -240,7 +240,7 @@ jobs:
         working-directory: plugins/${{ matrix.plugin }}
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         continue-on-error: true
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
